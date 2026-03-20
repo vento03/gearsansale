@@ -284,12 +284,42 @@
         }
 
         function getDashboardHTML() {
+            const now = new Date();
+            const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+            
+            // Start of week (Monday)
+            const day = now.getDay();
+            const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+            const startOfWeek = new Date(now.setDate(diff)).setHours(0,0,0,0);
+            
+            // Reset now for month/year calculations
+            const today = new Date();
+            const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).getTime();
+            const startOfYear = new Date(today.getFullYear(), 0, 1).getTime();
+
             const totalProducts = products.length;
             const totalStock = products.reduce((sum, p) => sum + p.stock, 0);
             const totalRevenue = transactions.filter(t => t.type === 'EXPORT').reduce((sum, t) => sum + (t.price * t.quantity), 0);
             const totalProfit = transactions.filter(t => t.type === 'EXPORT').reduce((sum, t) => sum + (t.profit || 0), 0);
 
-            let recentTxHTML = transactions.slice(0, 8).map(tx => {
+            // Time-based profit calculation
+            const profitToday = transactions
+                .filter(t => t.type === 'EXPORT' && new Date(t.timestamp).getTime() >= startOfDay)
+                .reduce((sum, t) => sum + (t.profit || 0), 0);
+
+            const profitThisWeek = transactions
+                .filter(t => t.type === 'EXPORT' && new Date(t.timestamp).getTime() >= startOfWeek)
+                .reduce((sum, t) => sum + (t.profit || 0), 0);
+
+            const profitThisMonth = transactions
+                .filter(t => t.type === 'EXPORT' && new Date(t.timestamp).getTime() >= startOfMonth)
+                .reduce((sum, t) => sum + (t.profit || 0), 0);
+
+            const profitThisYear = transactions
+                .filter(t => t.type === 'EXPORT' && new Date(t.timestamp).getTime() >= startOfYear)
+                .reduce((sum, t) => sum + (t.profit || 0), 0);
+
+            let recentTxHTML = transactions.slice(0, 5).map(tx => {
                 const p = products.find(p => p.id === tx.productId);
                 const isImport = tx.type === 'IMPORT';
                 return `
@@ -312,6 +342,8 @@
             return `
                 <div class="space-y-6 fade-in max-w-6xl mx-auto pb-10">
                     <h2 class="text-2xl font-bold text-gray-800">Tổng quan kết quả săn sale</h2>
+                    
+                    <!-- Hàng 1: Tổng quan chung -->
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                         <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center space-x-4">
                             <div class="p-3 bg-blue-50 text-blue-600 rounded-xl"><i data-lucide="package"></i></div>
@@ -323,13 +355,34 @@
                         </div>
                         <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center space-x-4">
                             <div class="p-3 bg-emerald-50 text-emerald-600 rounded-xl"><i data-lucide="trending-up"></i></div>
-                            <div><p class="text-xs text-gray-500 font-medium uppercase tracking-wider">Doanh thu</p><p class="text-lg font-bold text-gray-800">${formatCurrency(totalRevenue)}</p></div>
+                            <div><p class="text-xs text-gray-500 font-medium uppercase tracking-wider">Tổng doanh thu</p><p class="text-lg font-bold text-gray-800">${formatCurrency(totalRevenue)}</p></div>
                         </div>
                         <div class="bg-indigo-600 p-6 rounded-2xl shadow-lg border border-indigo-700 flex items-center space-x-4">
                             <div class="p-3 bg-white/20 text-white rounded-xl"><i data-lucide="dollar-sign"></i></div>
                             <div><p class="text-xs text-white/70 font-medium uppercase tracking-wider">LỢI NHUẬN TỔNG</p><p class="text-xl font-bold text-white">${formatCurrency(totalProfit)}</p></div>
                         </div>
                     </div>
+
+                    <!-- Hàng 2: Thống kê lợi nhuận theo thời gian -->
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 text-center">
+                            <p class="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-1">Hôm nay</p>
+                            <p class="text-lg font-bold text-emerald-600">${formatCurrency(profitToday)}</p>
+                        </div>
+                        <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 text-center">
+                            <p class="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-1">Tuần này</p>
+                            <p class="text-lg font-bold text-indigo-600">${formatCurrency(profitThisWeek)}</p>
+                        </div>
+                        <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 text-center">
+                            <p class="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-1">Tháng này</p>
+                            <p class="text-lg font-bold text-violet-600">${formatCurrency(profitThisMonth)}</p>
+                        </div>
+                        <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 text-center">
+                            <p class="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-1">Năm nay</p>
+                            <p class="text-lg font-bold text-gray-800">${formatCurrency(profitThisYear)}</p>
+                        </div>
+                    </div>
+
                     <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
                         <h3 class="text-lg font-semibold mb-4 text-gray-800">Giao dịch gần đây</h3>
                         <div class="space-y-2">${recentTxHTML || '<p class="text-center text-gray-400 py-10 italic">Chưa có dữ liệu giao dịch.</p>'}</div>
@@ -344,7 +397,6 @@
                 const key = `[${p.category || 'Bàn phím'}] ${p.brand || 'Khác'} ➔ ${p.model || 'Chưa phân loại'}`;
                 if(!grouped[key]) grouped[key] = { items: [], totalProfitPotential: 0 };
                 grouped[key].items.push(p);
-                // Tính lợi nhuận tiềm năng của nhóm: (Giá bán dự kiến - Giá nhập) * Tồn kho
                 grouped[key].totalProfitPotential += (p.exportPrice - p.importPrice) * p.stock;
             });
 
@@ -367,8 +419,8 @@
                                     <span class="text-base">${groupName}</span>
                                     <span class="text-xs font-medium bg-white border border-indigo-200 text-indigo-600 px-2 py-0.5 rounded-full shadow-sm">Tồn: ${totalGroupStock}</span>
                                 </div>
-                                <div class="text-sm font-medium text-indigo-600 bg-white px-3 py-1 rounded-lg border border-indigo-100">
-                                    Lợi nhuận dự kiến (tồn): <span class="font-bold">${formatCurrency(groupData.totalProfitPotential)}</span>
+                                <div class="text-xs font-medium text-indigo-600 bg-white px-3 py-1.5 rounded-lg border border-indigo-100 shadow-sm">
+                                    Lợi nhuận dự kiến (hàng tồn): <span class="font-bold text-sm">${formatCurrency(groupData.totalProfitPotential)}</span>
                                 </div>
                             </div>
                         </td>
