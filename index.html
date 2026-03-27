@@ -34,7 +34,7 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     
-    <!-- FIX LỖI UMD: Khắc phục lỗi "forwardRef" của lucide-react do sai khác biến môi trường -->
+    <!-- FIX LỖI UMD -->
     <script>window.react = window.React;</script>
 
     <!-- Babel -->
@@ -48,19 +48,17 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useMemo, useEffect } = React;
+        const { useState, useMemo, useEffect, useRef } = React;
         
-        // Cấu trúc an toàn để gọi Lucide Icons
         const lucideIcons = window.lucideReact || window.LucideReact || {};
         const { 
             LayoutDashboard, Database, PackagePlus, History, Plus, Trash2, 
             CheckCircle2, Clock, CreditCard, Wallet, Truck, Store, 
             DollarSign, TrendingUp, Box, Search, Upload, Image: ImageIcon,
             CloudLightning, UploadCloud, DownloadCloud, Save, RefreshCw,
-            X, AlertCircle, Info
+            X, AlertCircle, Info, Edit
         } = lucideIcons;
 
-        // Hàm đọc LocalStorage an toàn
         const loadSafeData = (key, fallback) => {
             try {
                 const data = localStorage.getItem(key);
@@ -75,48 +73,52 @@
             const [activeTab, setActiveTab] = useState('dashboard');
             const [dashboardFilter, setDashboardFilter] = useState('month'); 
             
-            // --- STATE TÌM KIẾM ---
             const [searchTerms, setSearchTerms] = useState({ templates: '', inventory: '' });
 
-            // --- STATE DỮ LIỆU ---
             const [templates, setTemplates] = useState(() => loadSafeData('gs_templates_pro', []));
             const [inventory, setInventory] = useState(() => loadSafeData('gs_inventory_pro', []));
             const [sales, setSales] = useState(() => loadSafeData('gs_sales_pro', []));
             
-            // --- STATE ĐỒNG BỘ ---
             const [syncUrl, setSyncUrl] = useState(() => localStorage.getItem('gearShop_syncUrl_pro') || '');
             const [syncStatus, setSyncStatus] = useState({ message: '', type: '' });
 
-            // --- TOAST NOTIFICATION ---
             const [toasts, setToasts] = useState([]);
             const showToast = (message, type = 'success') => {
                 const id = Date.now();
                 setToasts(prev => [...prev, { id, message, type }]);
-                setTimeout(() => {
-                    setToasts(prev => prev.filter(t => t.id !== id));
-                }, 3000);
+                setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000);
             };
 
-            // --- MODAL & FORMS ---
+            // MODALS & FORMS
             const [sellModal, setSellModal] = useState({ isOpen: false, item: null, qty: 1, type: 'Ship COD', price: 0 });
             const [templateForm, setTemplateForm] = useState({ category: 'Bàn phím', brand: '', model: '', switchType: '', color: '', connectionType: '3 mode', profile: 'OEM', name: '', importPrice: 0, exportPrice: 0, image: '' });
-            const [inventoryForm, setInventoryForm] = useState({ templateId: '', quantity: '', costPrice: '', sellingPrice: '', status: 'Hàng chưa về kho', payment: 'Thanh toán online' });
+            const [inventoryForm, setInventoryForm] = useState({ templateId: '', quantity: '', costPrice: '', sellingPrice: '', status: 'Đã về kho', payment: 'Thanh toán online' });
 
-            // --- LƯU LOCALSTORAGE ---
+            // Trạng thái cho Dropdown Tìm kiếm Mẫu
+            const [isTemplateDropdownOpen, setIsTemplateDropdownOpen] = useState(false);
+            const [templateSearchText, setTemplateSearchText] = useState('');
+
+            // Trạng thái cho Modal Chỉnh sửa Lô hàng
+            const [editInvModal, setEditInvModal] = useState({
+                isOpen: false,
+                item: null,
+                template: null,
+                form: { quantity: 0, costPrice: 0, sellingPrice: 0, status: '', payment: '', image: '', model: '', name: '' }
+            });
+
             useEffect(() => {
                 localStorage.setItem('gs_templates_pro', JSON.stringify(templates));
                 localStorage.setItem('gs_inventory_pro', JSON.stringify(inventory));
                 localStorage.setItem('gs_sales_pro', JSON.stringify(sales));
             }, [templates, inventory, sales]);
 
-            // --- FORMATTERS ---
             const formatCurrency = (amount) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount || 0);
             const formatDate = (dateString) => {
                 const d = new Date(dateString);
                 return `${d.toLocaleDateString('vi-VN')} ${d.getHours()}:${d.getMinutes().toString().padStart(2, '0')}`;
             };
 
-            // --- DASHBOARD LOGIC ---
+            // DASHBOARD STATS
             const dashboardStats = useMemo(() => {
                 const now = new Date();
                 let filteredSales = sales.filter(sale => {
@@ -153,7 +155,13 @@
                 return { totalStock, totalCapital };
             }, [inventory]);
 
-            // --- LỌC TÌM KIẾM ---
+            // SEARCH FILTERS
+            const getTemplateDisplayName = (t) => {
+                if (!t) return 'Sản phẩm đã xóa';
+                if (t.category === 'Keycap') return `[Keycap] ${t.brand} ${t.name}`;
+                return `[${t.category}] ${t.brand} ${t.model}`;
+            };
+
             const filteredTemplates = useMemo(() => {
                 if (!searchTerms.templates) return templates;
                 const lowerTerm = searchTerms.templates.toLowerCase();
@@ -176,10 +184,13 @@
                 });
             }, [inventory, templates, searchTerms.inventory]);
 
+            const dropdownFilteredTemplates = useMemo(() => {
+                return templates.filter(t => getTemplateDisplayName(t).toLowerCase().includes(templateSearchText.toLowerCase()));
+            }, [templates, templateSearchText]);
 
-            // --- XỬ LÝ ẢNH ---
-            const handleImageChange = (e) => {
-                const file = e.target.files[0];
+
+            // IMAGE HANDLERS
+            const processImage = (file, callback) => {
                 if (!file) return;
                 const reader = new FileReader();
                 reader.onload = (event) => {
@@ -194,15 +205,28 @@
                         canvas.height = img.height * scaleSize;
                         const ctx = canvas.getContext('2d');
                         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                        setTemplateForm(prev => ({ ...prev, image: canvas.toDataURL('image/jpeg', 0.7) }));
+                        callback(canvas.toDataURL('image/jpeg', 0.7));
                     }
                     img.src = event.target.result;
                 };
                 reader.readAsDataURL(file);
+            };
+
+            const handleImageChange = (e) => {
+                processImage(e.target.files[0], (base64) => {
+                    setTemplateForm(prev => ({ ...prev, image: base64 }));
+                });
                 e.target.value = ''; 
             };
 
-            // --- ACTIONS CHÍNH ---
+            const handleEditModalImageChange = (e) => {
+                processImage(e.target.files[0], (base64) => {
+                    setEditInvModal(prev => ({ ...prev, form: { ...prev.form, image: base64 } }));
+                });
+                e.target.value = ''; 
+            };
+
+            // ACTIONS
             const handleAddTemplate = (e) => {
                 e.preventDefault();
                 const newTemplate = { 
@@ -219,6 +243,8 @@
 
             const handleAddInventory = (e) => {
                 e.preventDefault();
+                if (!inventoryForm.templateId) return showToast('Vui lòng chọn mẫu sản phẩm!', 'error');
+
                 const newInv = {
                     ...inventoryForm,
                     id: 'inv_' + Date.now().toString(),
@@ -229,7 +255,55 @@
                 };
                 setInventory(prev => [newInv, ...prev]);
                 setInventoryForm({ templateId: '', quantity: '', costPrice: '', sellingPrice: '', status: 'Đã về kho', payment: 'Thanh toán online' });
+                setTemplateSearchText('');
                 showToast('Đã thêm hàng vào kho!', 'success');
+            };
+
+            const handleEditInventorySubmit = (e) => {
+                e.preventDefault();
+                const { form, item, template } = editInvModal;
+                
+                // Cập nhật Inventory
+                setInventory(prev => prev.map(i => i.id === item.id ? {
+                    ...i,
+                    quantity: Number(form.quantity),
+                    costPrice: Number(form.costPrice),
+                    sellingPrice: Number(form.sellingPrice),
+                    status: form.status,
+                    payment: form.payment
+                } : i));
+
+                // Cập nhật Template (Tên & Hình ảnh)
+                if (template) {
+                    setTemplates(prev => prev.map(t => t.id === template.id ? {
+                        ...t,
+                        image: form.image,
+                        model: form.model,
+                        name: form.name
+                    } : t));
+                }
+
+                showToast('Đã cập nhật lô hàng thành công!', 'success');
+                setEditInvModal({ isOpen: false, item: null, template: null, form: {} });
+            };
+
+            const openEditInvModal = (inv) => {
+                const t = getTemplate(inv.templateId);
+                setEditInvModal({
+                    isOpen: true,
+                    item: inv,
+                    template: t,
+                    form: {
+                        quantity: inv.quantity,
+                        costPrice: inv.costPrice,
+                        sellingPrice: inv.sellingPrice,
+                        status: inv.status || 'Đã về kho',
+                        payment: inv.payment || 'Thanh toán online',
+                        image: t?.image || '',
+                        model: t?.model || '',
+                        name: t?.name || ''
+                    }
+                });
             };
 
             const handleSell = (e) => {
@@ -302,7 +376,7 @@
                 setSales(prev => prev.filter(s => s.id !== saleId));
             };
 
-            // --- ĐỒNG BỘ CLOUD ---
+            // SYNC CLOUD
             const handleSaveSyncUrl = () => {
                 localStorage.setItem('gearShop_syncUrl_pro', syncUrl.trim());
                 showToast('Đã lưu link kết nối!', 'success');
@@ -355,13 +429,8 @@
                 link.setAttribute("href", dataStr); link.setAttribute("download", `GearPro_Backup_${date}.json`); link.click();
             };
 
-            // --- HELPERS ---
+            // HELPERS
             const getTemplate = (tId) => templates.find(x => x.id === tId);
-            const getTemplateDisplayName = (t) => {
-                if (!t) return 'Sản phẩm đã xóa';
-                if (t.category === 'Keycap') return `[Keycap] ${t.brand} ${t.name}`;
-                return `[${t.category}] ${t.brand} ${t.model}`;
-            };
             const getTemplateDetails = (t) => {
                 if (!t) return '';
                 if (t.category === 'Bàn phím') return `${t.switchType} • ${t.color}`;
@@ -370,7 +439,6 @@
                 return `${t.switchType || t.connectionType || ''} ${t.color || ''}`;
             };
 
-            // Tránh vỡ UI khi thư viện Icon lỗi
             if (!LayoutDashboard) return <div className="flex h-screen items-center justify-center p-4 text-center">Đang tải tài nguyên hoặc mạng gặp sự cố. Vui lòng tải lại trang (F5)...</div>;
 
             return (
@@ -413,7 +481,7 @@
                             ))}
                         </nav>
                         <div className="p-4 text-xs text-center text-slate-600 border-t border-slate-800">
-                            GearManager Pro v2.0.1
+                            GearManager Pro v2.1
                         </div>
                     </div>
 
@@ -657,31 +725,55 @@
                                     
                                     <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100">
                                         <div className="flex items-center mb-6"><PackagePlus className="text-emerald-500 mr-2"/><h3 className="font-bold text-lg">Lô hàng mới</h3></div>
-                                        <form onSubmit={handleAddInventory} className="grid grid-cols-1 md:grid-cols-12 gap-5">
-                                            <div className="md:col-span-4">
+                                        <form onSubmit={handleAddInventory} className="grid grid-cols-1 md:grid-cols-12 gap-5 relative">
+                                            <div className="md:col-span-4 relative">
                                                 <label className="block text-sm font-semibold text-slate-700 mb-1.5">Chọn Mẫu Sản Phẩm *</label>
-                                                <select required value={inventoryForm.templateId} onChange={e => {
-                                                    const t = getTemplate(e.target.value);
-                                                    setInventoryForm({
-                                                        ...inventoryForm, 
-                                                        templateId: e.target.value,
-                                                        costPrice: t ? t.importPrice : '',
-                                                        sellingPrice: t ? t.exportPrice : ''
-                                                    });
-                                                }} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 transition-all font-medium text-slate-700">
-                                                    <option value="">-- Click để chọn mẫu --</option>
-                                                    {templates.map(t => <option key={t.id} value={t.id}>{getTemplateDisplayName(t)} - {getTemplateDetails(t)}</option>)}
-                                                </select>
+                                                {/* THANH TÌM KIẾM MẪU SP */}
+                                                <div className="relative">
+                                                    <input 
+                                                        type="text" 
+                                                        placeholder={inventoryForm.templateId ? getTemplateDisplayName(getTemplate(inventoryForm.templateId)) : "-- Gõ tên để tìm & chọn mẫu --"}
+                                                        value={templateSearchText}
+                                                        onChange={e => {
+                                                            setTemplateSearchText(e.target.value);
+                                                            setIsTemplateDropdownOpen(true);
+                                                        }}
+                                                        onFocus={() => setIsTemplateDropdownOpen(true)}
+                                                        onBlur={() => setTimeout(() => setIsTemplateDropdownOpen(false), 200)}
+                                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 transition-all font-medium text-slate-700"
+                                                    />
+                                                    {isTemplateDropdownOpen && (
+                                                        <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-60 overflow-y-auto">
+                                                            {dropdownFilteredTemplates.length > 0 ? dropdownFilteredTemplates.map(t => (
+                                                                <div 
+                                                                    key={t.id} 
+                                                                    onClick={() => {
+                                                                        setInventoryForm({...inventoryForm, templateId: t.id, costPrice: t.importPrice, sellingPrice: t.exportPrice});
+                                                                        setTemplateSearchText('');
+                                                                        setIsTemplateDropdownOpen(false);
+                                                                    }}
+                                                                    className="p-3 hover:bg-blue-50 cursor-pointer border-b border-slate-50 last:border-0 flex items-center space-x-3 transition-colors"
+                                                                >
+                                                                    {t.image ? <img src={t.image} className="w-10 h-10 rounded-lg object-cover shadow-sm"/> : <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center"><ImageIcon size={16}/></div>}
+                                                                    <div>
+                                                                        <div className="text-sm font-bold text-slate-800">{getTemplateDisplayName(t)}</div>
+                                                                        <div className="text-xs text-slate-500">Nhập: {formatCurrency(t.importPrice)} | Bán: {formatCurrency(t.exportPrice)}</div>
+                                                                    </div>
+                                                                </div>
+                                                            )) : <div className="p-4 text-center text-sm text-slate-400">Không tìm thấy mẫu nào</div>}
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
                                             <div className="md:col-span-2"><label className="block text-sm font-semibold text-slate-700 mb-1.5">Số lượng *</label><input required type="number" min="1" value={inventoryForm.quantity} onChange={e => setInventoryForm({...inventoryForm, quantity: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-bold" /></div>
                                             <div className="md:col-span-3"><label className="block text-sm font-semibold text-slate-700 mb-1.5">Trạng thái vận chuyển</label>
                                                 <select value={inventoryForm.status} onChange={e => setInventoryForm({...inventoryForm, status: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-medium text-slate-700">
-                                                    <option>Đã về kho</option><option>Hàng chưa về</option>
+                                                    <option>Đã về kho</option><option>Đang vận chuyển</option><option>Hàng chưa về</option>
                                                 </select>
                                             </div>
-                                            <div className="md:col-span-3"><label className="block text-sm font-semibold text-slate-700 mb-1.5">Thanh toán với NCC</label>
+                                            <div className="md:col-span-3"><label className="block text-sm font-semibold text-slate-700 mb-1.5">Thanh toán NCC</label>
                                                 <select value={inventoryForm.payment} onChange={e => setInventoryForm({...inventoryForm, payment: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-medium text-slate-700">
-                                                    <option>Đã thanh toán (Online)</option><option>Chưa thanh toán (COD)</option>
+                                                    <option>Thanh toán online</option><option>Thanh toán tiền mặt</option><option>Chưa thanh toán</option>
                                                 </select>
                                             </div>
                                             
@@ -732,7 +824,7 @@
                                                                         {inv.status === 'Đã về kho' ? <CheckCircle2 size={12} className="mr-1"/> : <Clock size={12} className="mr-1"/>} {inv.status}
                                                                     </span>
                                                                     <span className="inline-flex items-center text-xs font-medium text-slate-500 whitespace-nowrap">
-                                                                        {inv.payment.includes('Online') ? <CreditCard size={12} className="mr-1"/> : <Wallet size={12} className="mr-1"/>} {inv.payment}
+                                                                        {inv.payment && inv.payment.includes('Online') ? <CreditCard size={12} className="mr-1"/> : <Wallet size={12} className="mr-1"/>} {inv.payment}
                                                                     </span>
                                                                 </div>
                                                             </td>
@@ -742,11 +834,16 @@
                                                             </td>
                                                             <td className="p-4">
                                                                 <div className="flex items-center justify-center space-x-2">
-                                                                    <button disabled={inv.status !== 'Đã về kho' || inv.quantity === 0} onClick={() => setSellModal({ isOpen: true, item: inv, qty: 1, type: 'Ship COD', price: inv.sellingPrice })} 
+                                                                    {/* NÚT BÁN NGAY KHÔNG CÒN BỊ KHÓA NẾU HÀNG CHƯA VỀ */}
+                                                                    <button disabled={inv.quantity === 0} onClick={() => setSellModal({ isOpen: true, item: inv, qty: 1, type: 'Ship COD', price: inv.sellingPrice })} 
                                                                         className="bg-slate-900 hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm hover:shadow-md whitespace-nowrap">
                                                                         Bán ngay
                                                                     </button>
-                                                                    <button onClick={() => { if(window.confirm('Chắc chắn muốn xóa lô hàng này?')) handleDeleteInventory(inv.id); }} className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all opacity-0 group-hover:opacity-100 focus:opacity-100">
+                                                                    {/* NÚT CHỈNH SỬA MỚI */}
+                                                                    <button onClick={() => openEditInvModal(inv)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all opacity-0 group-hover:opacity-100 focus:opacity-100" title="Chỉnh sửa">
+                                                                        <Edit size={18}/>
+                                                                    </button>
+                                                                    <button onClick={() => { if(window.confirm('Chắc chắn muốn xóa lô hàng này?')) handleDeleteInventory(inv.id); }} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all opacity-0 group-hover:opacity-100 focus:opacity-100" title="Xóa">
                                                                         <Trash2 size={18}/>
                                                                     </button>
                                                                 </div>
@@ -872,7 +969,7 @@
                                             <div className="w-12 h-12 rounded-xl bg-slate-200 flex items-center justify-center"><ImageIcon className="text-slate-400"/></div>
                                         }
                                         <div>
-                                            <h3 className="font-black text-lg text-slate-800">Xác nhận đơn hàng</h3>
+                                            <h3 className="font-black text-lg text-slate-800">Xác nhận chốt đơn</h3>
                                             <p className="text-sm text-slate-500 font-medium mt-0.5 line-clamp-1">{getTemplateDisplayName(getTemplate(sellModal.item.templateId))}</p>
                                         </div>
                                     </div>
@@ -883,28 +980,98 @@
                                         <div>
                                             <label className="block text-sm font-bold text-slate-700 mb-1.5">Số lượng bán</label>
                                             <input type="number" min="1" max={sellModal.item.quantity} value={sellModal.qty} onChange={e => setSellModal({...sellModal, qty: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-bold text-lg text-center transition-all" />
-                                            <p className="text-xs font-semibold text-orange-600 mt-1.5 text-center">Kho còn: {sellModal.item.quantity}</p>
+                                            <p className="text-xs font-semibold text-orange-600 mt-1.5 text-center">Tồn kho: {sellModal.item.quantity}</p>
                                         </div>
                                         <div>
-                                            <label className="block text-sm font-bold text-slate-700 mb-1.5">Giá chốt (VNĐ)</label>
+                                            <label className="block text-sm font-bold text-slate-700 mb-1.5">Giá bán (VNĐ)</label>
                                             <input type="number" required value={sellModal.price} onChange={e => setSellModal({...sellModal, price: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-bold text-lg text-blue-700 transition-all" />
                                         </div>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-bold text-slate-700 mb-2">Hình thức giao hàng</label>
+                                        <label className="block text-sm font-bold text-slate-700 mb-2">Hình thức giao dịch</label>
                                         <div className="grid grid-cols-2 gap-3">
                                             <button type="button" onClick={() => setSellModal({...sellModal, type: 'Ship COD'})} className={`p-4 rounded-2xl border-2 flex flex-col items-center justify-center transition-all ${sellModal.type === 'Ship COD' ? 'border-orange-500 bg-orange-50 text-orange-700 shadow-md' : 'border-slate-100 bg-white text-slate-400 hover:bg-slate-50 hover:border-slate-200'}`}>
                                                 <Truck size={28} className="mb-2" />
                                                 <span className="text-sm font-bold">Ship COD</span>
                                             </button>
-                                            <button type="button" onClick={() => setSellModal({...sellModal, type: 'Bán trực tiếp'})} className={`p-4 rounded-2xl border-2 flex flex-col items-center justify-center transition-all ${sellModal.type === 'Bán trực tiếp' ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-md' : 'border-slate-100 bg-white text-slate-400 hover:bg-slate-50 hover:border-slate-200'}`}>
+                                            <button type="button" onClick={() => setSellModal({...sellModal, type: 'Giao dịch trực tiếp'})} className={`p-4 rounded-2xl border-2 flex flex-col items-center justify-center transition-all ${sellModal.type === 'Giao dịch trực tiếp' ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-md' : 'border-slate-100 bg-white text-slate-400 hover:bg-slate-50 hover:border-slate-200'}`}>
                                                 <Store size={28} className="mb-2" />
-                                                <span className="text-sm font-bold">Bán trực tiếp</span>
+                                                <span className="text-sm font-bold text-center">Giao dịch trực tiếp</span>
                                             </button>
                                         </div>
                                     </div>
                                     <div className="pt-2">
-                                        <button type="submit" className="w-full py-4 bg-slate-900 text-white font-bold rounded-2xl hover:bg-slate-800 shadow-xl shadow-slate-900/20 hover:-translate-y-0.5 transition-all text-lg">Hoàn tất đơn hàng</button>
+                                        <button type="submit" className="w-full py-4 bg-slate-900 text-white font-bold rounded-2xl hover:bg-slate-800 shadow-xl shadow-slate-900/20 hover:-translate-y-0.5 transition-all text-lg">Xác nhận bán hàng</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                        )}
+
+                        {/* ---------------- MODAL SỬA LÔ HÀNG ---------------- */}
+                        {editInvModal.isOpen && (
+                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in overflow-y-auto">
+                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-slide-up border border-slate-100 my-auto">
+                                <div className="p-6 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+                                    <h3 className="font-black text-xl text-slate-800">Chỉnh sửa Lô hàng</h3>
+                                    <button onClick={() => setEditInvModal({isOpen: false, item: null, template: null, form: {}})} className="p-2 bg-slate-200 text-slate-500 rounded-full hover:bg-slate-300 transition-colors"><X size={16}/></button>
+                                </div>
+                                <form onSubmit={handleEditInventorySubmit} className="p-6 space-y-5">
+                                    {/* Edit Template specific details implicitly */}
+                                    <div className="flex space-x-4 items-center bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                                        <label className="relative group cursor-pointer block">
+                                            {editInvModal.form.image ? 
+                                                <img src={editInvModal.form.image} className="w-16 h-16 rounded-xl object-cover border border-slate-200" alt="item"/> : 
+                                                <div className="w-16 h-16 rounded-xl bg-white border border-slate-200 flex items-center justify-center"><ImageIcon className="text-slate-400"/></div>
+                                            }
+                                            <div className="absolute inset-0 bg-black/40 rounded-xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <Edit size={16} className="text-white"/>
+                                            </div>
+                                            <input type="file" accept="image/*" className="hidden" onChange={handleEditModalImageChange} />
+                                        </label>
+                                        <div className="flex-1">
+                                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tên / Mã SP</label>
+                                            <input required type="text" value={editInvModal.template?.category === 'Keycap' ? editInvModal.form.name : editInvModal.form.model} 
+                                                onChange={e => {
+                                                    if (editInvModal.template?.category === 'Keycap') setEditInvModal(prev => ({...prev, form: {...prev.form, name: e.target.value}}));
+                                                    else setEditInvModal(prev => ({...prev, form: {...prev.form, model: e.target.value}}));
+                                                }}
+                                                className="w-full p-2.5 bg-white border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-bold text-slate-800 transition-all text-sm" 
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div><label className="block text-sm font-bold text-slate-700 mb-1">Số lượng tồn</label>
+                                            <input required type="number" min="0" value={editInvModal.form.quantity} onChange={e => setEditInvModal(prev => ({...prev, form: {...prev.form, quantity: e.target.value}}))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-bold transition-all" />
+                                        </div>
+                                        <div><label className="block text-sm font-bold text-slate-700 mb-1">Trạng thái kho</label>
+                                            <select value={editInvModal.form.status} onChange={e => setEditInvModal(prev => ({...prev, form: {...prev.form, status: e.target.value}}))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-medium transition-all">
+                                                <option>Đã về kho</option><option>Đang vận chuyển</option><option>Hàng chưa về</option>
+                                            </select>
+                                        </div>
+                                        <div><label className="block text-sm font-bold text-slate-700 mb-1">Giá nhập (VNĐ)</label>
+                                            <input required type="number" min="0" value={editInvModal.form.costPrice} onChange={e => setEditInvModal(prev => ({...prev, form: {...prev.form, costPrice: e.target.value}}))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 transition-all" />
+                                        </div>
+                                        <div><label className="block text-sm font-bold text-slate-700 mb-1">Giá bán (VNĐ)</label>
+                                            <input required type="number" min="0" value={editInvModal.form.sellingPrice} onChange={e => setEditInvModal(prev => ({...prev, form: {...prev.form, sellingPrice: e.target.value}}))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-bold text-blue-700 transition-all" />
+                                        </div>
+                                        <div className="col-span-2"><label className="block text-sm font-bold text-slate-700 mb-1">Trạng thái thanh toán (NCC)</label>
+                                            <select value={editInvModal.form.payment} onChange={e => setEditInvModal(prev => ({...prev, form: {...prev.form, payment: e.target.value}}))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-medium transition-all">
+                                                <option>Thanh toán online</option><option>Thanh toán tiền mặt</option><option>Chưa thanh toán</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 flex justify-between items-center">
+                                        <span className="text-sm font-bold text-emerald-800">Lãi ròng dự kiến (tổng lô hàng):</span>
+                                        <span className="font-black text-emerald-600 text-lg">
+                                            {formatCurrency((Number(editInvModal.form.sellingPrice) - Number(editInvModal.form.costPrice)) * Number(editInvModal.form.quantity))}
+                                        </span>
+                                    </div>
+
+                                    <div className="pt-2">
+                                        <button type="submit" className="w-full py-4 bg-blue-600 text-white font-bold rounded-2xl hover:bg-blue-700 shadow-xl shadow-blue-600/20 hover:-translate-y-0.5 transition-all text-lg">Lưu thông tin</button>
                                     </div>
                                 </form>
                             </div>
