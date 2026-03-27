@@ -569,10 +569,139 @@
 
         // ---------- TAB SYNC ----------
         function renderSync() {
-            return `<div class="p-10 text-center text-slate-500 font-bold fade-in">Tính năng đồng bộ giữ nguyên như phiên bản trước (Tự động áp dụng JSON stringify cho templates, inventory, transactions).</div>`;
+            const syncUrl = localStorage.getItem('gearShop_syncUrl') || '';
+            return `
+                <div class="space-y-6 fade-in max-w-3xl mx-auto pb-10">
+                    <h2 class="text-2xl font-bold text-slate-800 text-center">Đồng bộ Đám mây</h2>
+                    <div class="bg-indigo-600 p-8 rounded-3xl shadow-xl text-white">
+                        <div class="flex items-center space-x-3 mb-6">
+                            <i data-lucide="cloud-lightning" class="w-8 h-8"></i>
+                            <h3 class="text-xl font-bold">Kết nối Google Drive</h3>
+                        </div>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-xs font-bold uppercase tracking-widest text-indigo-200 mb-2">Đường dẫn API (Google Apps Script)</label>
+                                <div class="flex gap-2">
+                                    <input type="text" id="sync-url" placeholder="https://script.google.com/macros/s/..." class="flex-1 px-4 py-3 border-none rounded-xl outline-none text-slate-900 bg-white font-medium" value="${syncUrl}" />
+                                    <button onclick="saveSyncUrl()" class="px-6 py-3 bg-indigo-800 text-white border border-indigo-500 rounded-xl font-bold shadow-sm hover:bg-indigo-900 transition-colors">LƯU LINK</button>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-4 pt-4">
+                                <button onclick="syncToCloud()" class="py-4 bg-emerald-500 text-white rounded-2xl font-bold shadow-md hover:bg-emerald-400 transition-all flex items-center justify-center space-x-2">
+                                    <i data-lucide="upload-cloud"></i> <span>ĐẨY DỮ LIỆU LÊN</span>
+                                </button>
+                                <button onclick="syncFromCloud()" class="py-4 bg-white/10 text-white border border-white/20 rounded-2xl font-bold hover:bg-white/20 transition-all flex items-center justify-center space-x-2">
+                                    <i data-lucide="download-cloud"></i> <span>TẢI DỮ LIỆU VỀ</span>
+                                </button>
+                            </div>
+                        </div>
+                        <p id="sync-status" class="mt-6 text-sm font-bold text-center text-emerald-300 hidden"></p>
+                    </div>
+                    <div class="flex flex-col items-center pt-8 border-t border-slate-200">
+                        <p class="text-sm text-slate-400 mb-4 italic font-medium">Hoặc bạn có thể sao lưu thủ công ra file JSON</p>
+                        <button onclick="exportBackupData()" class="text-slate-600 hover:text-indigo-600 flex items-center space-x-2 font-bold bg-white px-4 py-2 rounded-lg border border-slate-200 shadow-sm">
+                            <i data-lucide="save" class="w-4 h-4"></i> <span>Tải file Backup về máy</span>
+                        </button>
+                    </div>
+                </div>
+            `;
         }
 
-        // --- 5. LOGIC MODAL TẠO MẪU (TEMPLATE) ---
+        // --- 5. LOGIC ĐỒNG BỘ ---
+        function saveSyncUrl() {
+            localStorage.setItem('gearShop_syncUrl', document.getElementById('sync-url').value.trim());
+            alertMessage('Đã lưu link kết nối thành công!', 'white');
+        }
+
+        async function syncToCloud() {
+            const url = localStorage.getItem('gearShop_syncUrl');
+            if(!url) return alertMessage('Vui lòng lưu link API trước!', 'white');
+            const statusEl = document.getElementById('sync-status');
+            statusEl.textContent = 'Đang đồng bộ lên Google Drive...'; statusEl.className = 'mt-6 text-sm font-bold text-center text-indigo-200 block animate-pulse';
+            try {
+                // Đẩy cả templates, inventory, transactions
+                const response = await fetch(url, { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
+                    body: JSON.stringify({ inventory, transactions, templates }) 
+                });
+                const result = await response.json();
+                if(result.status === 'success') alertMessage('Đồng bộ thành công rực rỡ! ✓', 'emerald-400');
+            } catch (e) { 
+                console.error(e);
+                alertMessage('Lỗi kết nối. Hãy kiểm tra mạng hoặc link API.', 'rose-300'); 
+            }
+        }
+
+        async function syncFromCloud() {
+            const url = localStorage.getItem('gearShop_syncUrl');
+            if(!url) return alertMessage('Vui lòng lưu link API trước!', 'white');
+            if(!confirm('Dữ liệu từ Cloud sẽ GHI ĐÈ dữ liệu trên máy này. Chắc chắn muốn tiếp tục?')) return;
+            const statusEl = document.getElementById('sync-status');
+            statusEl.textContent = 'Đang tải dữ liệu về...'; statusEl.className = 'mt-6 text-sm font-bold text-center text-indigo-200 block animate-pulse';
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                // --- Xử lý tương thích ngược (Migrate data cũ) ---
+                if(data.products && (!data.inventory || data.inventory.length === 0)) {
+                    data.templates = [];
+                    data.inventory = [];
+                    data.products.forEach(p => {
+                        const tmplId = 'tmpl_' + p.id;
+                        data.templates.push({
+                            id: tmplId, category: p.category, brand: p.brand || 'Khác',
+                            model: p.model || 'Không tên', color: p.color || '',
+                            switchType: p.switchType || '', plate: p.plate || '',
+                            connection: '', profile: '',
+                            importPrice: p.importPrice || 0, exportPrice: p.exportPrice || 0,
+                            image: p.image || ''
+                        });
+                        // Chuyển hàng tồn thành Lô hàng mới
+                        if (p.stock > 0) {
+                            data.inventory.push({
+                                id: 'inv_' + p.id, templateId: tmplId,
+                                currentQty: p.stock, actualImportPrice: p.importPrice || 0,
+                                arrivalStatus: 'Đã về kho', paymentStatus: 'Đã thanh toán',
+                                dateAdded: new Date().toISOString()
+                            });
+                        }
+                    });
+                    
+                    if(data.transactions) {
+                        data.transactions.forEach(tx => {
+                            tx.inventoryId = 'inv_' + tx.productId;
+                            tx.qty = tx.quantity || tx.qty || 1;
+                            tx.salePrice = tx.price || tx.salePrice || 0;
+                            tx.shippingMethod = tx.shippingMethod || 'Giao dịch trực tiếp';
+                        });
+                    }
+                }
+
+                if(data.inventory || data.templates) { 
+                    inventory = data.inventory || []; 
+                    transactions = data.transactions || []; 
+                    templates = data.templates || []; 
+                    saveData(); 
+                    render(); 
+                    alertMessage('Đã nạp dữ liệu mới thành công!', 'emerald-400'); 
+                } else {
+                    alertMessage('Dữ liệu trên Cloud trống.', 'amber-300');
+                }
+            } catch (e) { 
+                console.error(e);
+                alertMessage('Lỗi tải dữ liệu. Có thể trên Cloud chưa có file.', 'rose-300'); 
+            }
+        }
+
+        function exportBackupData() {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ inventory, transactions, templates }));
+            const link = document.createElement('a');
+            const date = new Date().toLocaleDateString('vi-VN').replace(/\//g,'-');
+            link.setAttribute("href", dataStr); link.setAttribute("download", `GearBackup_${date}.json`); link.click();
+        }
+
+        // --- 6. LOGIC MODAL TẠO MẪU (TEMPLATE) ---
         function toggleTemplateFields() {
             const cat = document.getElementById('mt-category').value;
             document.querySelector('.df-keyboard').classList.toggle('hidden', cat !== 'Bàn phím');
@@ -653,7 +782,7 @@
             saveData(); closeModal('modal-template'); render();
         }
 
-        // --- 6. LOGIC NHẬP KHO (INVENTORY IMPORT) ---
+        // --- 7. LOGIC NHẬP KHO (INVENTORY IMPORT) ---
         function openImportModal() {
             if(templates.length === 0) { alert('Vui lòng tạo Mẫu Sản Phẩm trước khi nhập hàng!'); switchTab('templates'); return; }
             document.getElementById('modal-import').classList.remove('hidden');
@@ -686,7 +815,7 @@
             saveData(); closeModal('modal-import'); render();
         }
 
-        // --- 7. LOGIC XUẤT BÁN (SELL) ---
+        // --- 8. LOGIC XUẤT BÁN (SELL) ---
         function openSellModal(invId) {
             const inv = inventory.find(i => i.id === invId);
             const tmpl = templates.find(t => t.id === inv.templateId);
@@ -735,6 +864,13 @@
         }
 
         function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+        function alertMessage(msg, color) {
+            const status = document.getElementById('sync-status');
+            if(status) {
+                status.innerText = msg; status.className = `mt-6 text-sm font-bold text-center text-${color} block`;
+                setTimeout(() => status.classList.add('hidden'), 5000);
+            }
+        }
         
         // Khởi động
         render();
