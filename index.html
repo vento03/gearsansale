@@ -84,6 +84,10 @@
             
             const [searchTerms, setSearchTerms] = useState({ templates: '', inventory: '' });
 
+            // THÊM 2 STATE MỚI CHO BỘ LỌC KHO HÀNG
+            const [inventoryCategoryFilter, setInventoryCategoryFilter] = useState('All');
+            const [inventoryStockFilter, setInventoryStockFilter] = useState('in_stock'); // Mặc định chỉ hiện hàng còn tồn
+
             const [templates, setTemplates] = useState(() => loadSafeData('gs_templates_pro', []));
             const [inventory, setInventory] = useState(() => loadSafeData('gs_inventory_pro', []));
             const [sales, setSales] = useState(() => loadSafeData('gs_sales_pro', []));
@@ -190,17 +194,30 @@
                 const validInventory = Array.isArray(inventory) ? inventory : [];
                 const validTemplates = Array.isArray(templates) ? templates : [];
                 
-                if (!searchTerms.inventory) return validInventory;
-                const lowerTerm = searchTerms.inventory.toLowerCase();
                 return validInventory.filter(inv => {
                     if (!inv) return false;
                     const t = validTemplates.find(temp => temp && temp.id === inv.templateId);
                     if (!t) return false;
-                    return String(t.model || '').toLowerCase().includes(lowerTerm) || 
-                           String(t.brand || '').toLowerCase().includes(lowerTerm) ||
-                           String(t.name || '').toLowerCase().includes(lowerTerm);
+
+                    // 1. Lọc theo trạng thái Còn hàng / Hết hàng
+                    if (inventoryStockFilter === 'in_stock' && Number(inv.quantity) <= 0) return false;
+                    if (inventoryStockFilter === 'out_of_stock' && Number(inv.quantity) > 0) return false;
+
+                    // 2. Lọc theo danh mục sản phẩm
+                    if (inventoryCategoryFilter !== 'All' && t.category !== inventoryCategoryFilter) return false;
+
+                    // 3. Lọc theo từ khóa tìm kiếm
+                    if (searchTerms.inventory) {
+                        const lowerTerm = searchTerms.inventory.toLowerCase();
+                        const isMatch = String(t.model || '').toLowerCase().includes(lowerTerm) || 
+                                        String(t.brand || '').toLowerCase().includes(lowerTerm) ||
+                                        String(t.name || '').toLowerCase().includes(lowerTerm);
+                        if (!isMatch) return false;
+                    }
+
+                    return true;
                 });
-            }, [inventory, templates, searchTerms.inventory]);
+            }, [inventory, templates, searchTerms.inventory, inventoryStockFilter, inventoryCategoryFilter]);
 
             const dropdownFilteredTemplates = useMemo(() => {
                 const validTemplates = Array.isArray(templates) ? templates : [];
@@ -396,6 +413,7 @@
                 showToast('Đã lưu link kết nối API!', 'success');
             };
 
+            // FIX: Thay thế các phần rút gọn (...) bằng logic thực tế.
             const syncToCloud = async () => {
                 if(!syncUrl) return showToast('Vui lòng lưu link API Web App trước!', 'error');
                 setSyncStatus({ message: 'Đang đồng bộ lên Google Drive...', type: 'text-indigo-400 animate-pulse' });
@@ -403,9 +421,11 @@
                 try {
                     const response = await fetch(syncUrl, { 
                         method: 'POST', 
-                        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
+                        headers: { 
+                            'Content-Type': 'text/plain;charset=utf-8' 
+                        }, 
                         body: JSON.stringify({ templates, inventory, transactions: sales }),
-                        redirect: "follow"
+                        redirect: "follow" 
                     });
                     
                     const result = await response.json();
@@ -417,7 +437,7 @@
                     }
                 } catch (e) { 
                     console.error("Lỗi đồng bộ:", e);
-                    setSyncStatus({ message: 'Lỗi kết nối API. Hãy kiểm tra lại link.', type: 'text-rose-400' });
+                    setSyncStatus({ message: 'Lỗi kết nối API. Hãy kiểm tra lại link Google Apps Script.', type: 'text-rose-400' });
                     showToast('Lỗi đẩy dữ liệu (CORS/Network)', 'error');
                 }
             };
@@ -428,7 +448,10 @@
                 
                 setSyncStatus({ message: 'Đang tải về từ Google Drive...', type: 'text-indigo-400 animate-pulse' });
                 try {
-                    const response = await fetch(syncUrl, { method: 'GET', redirect: "follow" });
+                    const response = await fetch(syncUrl, {
+                        method: 'GET',
+                        redirect: "follow" 
+                    });
                     const data = await response.json();
                     
                     if(data.templates) setTemplates(data.templates);
@@ -439,7 +462,7 @@
                     showToast('Tải dữ liệu thành công!', 'success');
                 } catch (e) { 
                     console.error("Lỗi tải dữ liệu:", e);
-                    setSyncStatus({ message: 'Lỗi tải dữ liệu. Kiểm tra quyền truy cập.', type: 'text-rose-400' });
+                    setSyncStatus({ message: 'Lỗi tải dữ liệu. Kiểm tra quyền truy cập Google Drive.', type: 'text-rose-400' });
                     showToast('Không thể tải dữ liệu', 'error');
                 }
             };
@@ -854,9 +877,29 @@
                                     </div>
 
                                     {/* Bảng Tồn Kho */}
-                                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                                        <div className="p-4 border-b flex justify-between items-center bg-slate-50/50">
-                                            <div className="flex bg-white p-2 rounded-lg border w-full max-w-md items-center">
+                                    
+                                    {/* Phân loại danh mục */}
+                                    <div className="flex flex-wrap gap-2 mb-2 relative z-0">
+                                        {['All', 'Bàn phím', 'Chuột', 'Keycap', 'Khác'].map(cat => (
+                                            <button key={cat} 
+                                                onClick={() => setInventoryCategoryFilter(cat)}
+                                                className={`px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${inventoryCategoryFilter === cat ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>
+                                                {cat === 'All' ? 'Tất cả danh mục' : cat}
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden relative z-0">
+                                        <div className="p-4 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-50/50">
+                                            
+                                            {/* Bộ lọc Còn hàng / Hết hàng */}
+                                            <div className="flex bg-white p-1 rounded-lg border shadow-sm w-full md:w-auto overflow-x-auto">
+                                                <button onClick={() => setInventoryStockFilter('in_stock')} className={`flex-1 md:flex-none px-4 py-1.5 text-sm font-bold rounded-md transition-colors whitespace-nowrap ${inventoryStockFilter === 'in_stock' ? 'bg-emerald-100 text-emerald-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>Còn hàng</button>
+                                                <button onClick={() => setInventoryStockFilter('out_of_stock')} className={`flex-1 md:flex-none px-4 py-1.5 text-sm font-bold rounded-md transition-colors whitespace-nowrap ${inventoryStockFilter === 'out_of_stock' ? 'bg-rose-100 text-rose-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>Đã bán hết</button>
+                                                <button onClick={() => setInventoryStockFilter('all')} className={`flex-1 md:flex-none px-4 py-1.5 text-sm font-bold rounded-md transition-colors whitespace-nowrap ${inventoryStockFilter === 'all' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>Tất cả</button>
+                                            </div>
+
+                                            <div className="flex bg-white p-2 rounded-lg border w-full md:max-w-xs lg:max-w-md items-center shadow-sm">
                                                 {Search && <Search className="text-slate-400 ml-2" size={18} />}
                                                 <input type="text" placeholder="Tìm kiếm trong kho..." className="w-full p-1 ml-2 outline-none text-sm"
                                                     value={searchTerms.inventory} onChange={e => setSearchTerms({...searchTerms, inventory: e.target.value})} />
