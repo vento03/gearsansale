@@ -13,7 +13,7 @@
                 extend: {
                     animation: {
                         'fade-in': 'fadeIn 0.3s ease-out',
-                        'slide-up': 'slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
+                        'slide-up': 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
                     },
                     keyframes: {
                         fadeIn: {
@@ -21,7 +21,7 @@
                             '100%': { opacity: '1' },
                         },
                         slideUp: {
-                            '0%': { transform: 'translateY(100%)', opacity: '0' },
+                            '0%': { transform: 'translateY(20px)', opacity: '0' },
                             '100%': { transform: 'translateY(0)', opacity: '1' },
                         }
                     }
@@ -56,13 +56,22 @@
             CheckCircle2, Clock, CreditCard, Wallet, Truck, Store, 
             DollarSign, TrendingUp, Box, Search, Upload, Image: ImageIcon,
             CloudLightning, UploadCloud, DownloadCloud, Save, RefreshCw,
-            X, AlertCircle, Info, Edit
+            X, AlertCircle, Info, Edit, ChevronDown, ShoppingCart
         } = lucideIcons;
 
+        // BẢO VỆ DỮ LIỆU: Đảm bảo dữ liệu từ localStorage luôn đúng định dạng
         const loadSafeData = (key, fallback) => {
             try {
                 const data = localStorage.getItem(key);
-                return data ? JSON.parse(data) : fallback;
+                if (!data) return fallback;
+                const parsed = JSON.parse(data);
+                
+                // Ép kiểu: Nếu fallback là mảng mà data parse ra không phải mảng -> trả về mảng rỗng
+                if (Array.isArray(fallback) && !Array.isArray(parsed)) {
+                    console.warn(`Khôi phục dữ liệu mảng an toàn cho ${key}`);
+                    return fallback;
+                }
+                return parsed;
             } catch (error) {
                 console.error(`Lỗi dữ liệu JSON ở biến ${key}:`, error);
                 return fallback;
@@ -94,24 +103,24 @@
             const [templateForm, setTemplateForm] = useState({ category: 'Bàn phím', brand: '', model: '', switchType: '', color: '', connectionType: '3 mode', profile: 'OEM', name: '', importPrice: 0, exportPrice: 0, image: '' });
             const [inventoryForm, setInventoryForm] = useState({ templateId: '', quantity: '', costPrice: '', sellingPrice: '', status: 'Đã về kho', payment: 'Thanh toán online' });
 
-            // Trạng thái cho Dropdown Tìm kiếm Mẫu
+            // Dropdown Custom
             const [isTemplateDropdownOpen, setIsTemplateDropdownOpen] = useState(false);
             const [templateSearchText, setTemplateSearchText] = useState('');
 
-            // Trạng thái cho Modal Chỉnh sửa Lô hàng
+            // Edit Modal
             const [editInvModal, setEditInvModal] = useState({
-                isOpen: false,
-                item: null,
-                template: null,
+                isOpen: false, item: null, template: null,
                 form: { quantity: 0, costPrice: 0, sellingPrice: 0, status: '', payment: '', image: '', model: '', name: '' }
             });
 
+            // Save to LocalStorage
             useEffect(() => {
                 localStorage.setItem('gs_templates_pro', JSON.stringify(templates));
                 localStorage.setItem('gs_inventory_pro', JSON.stringify(inventory));
                 localStorage.setItem('gs_sales_pro', JSON.stringify(sales));
             }, [templates, inventory, sales]);
 
+            // Utils
             const formatCurrency = (amount) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount || 0);
             const formatDate = (dateString) => {
                 const d = new Date(dateString);
@@ -121,8 +130,8 @@
             // DASHBOARD STATS
             const dashboardStats = useMemo(() => {
                 const now = new Date();
-                let filteredSales = sales.filter(sale => {
-                    if (!sale.saleDate) return false;
+                let filteredSales = (Array.isArray(sales) ? sales : []).filter(sale => {
+                    if (!sale || !sale.saleDate) return false;
                     const saleDate = new Date(sale.saleDate);
                     if (dashboardFilter === 'day') return saleDate.toDateString() === now.toDateString();
                     if (dashboardFilter === 'week') {
@@ -146,37 +155,46 @@
 
             const inventoryStats = useMemo(() => {
                 let totalStock = 0; let totalCapital = 0;
-                inventory.forEach(inv => {
-                    if (Number(inv.quantity) > 0) {
-                        totalStock += Number(inv.quantity);
-                        totalCapital += Number(inv.quantity) * (Number(inv.costPrice) || 0);
-                    }
-                });
+                if(Array.isArray(inventory)) {
+                    inventory.forEach(inv => {
+                        if (inv && Number(inv.quantity) > 0) {
+                            totalStock += Number(inv.quantity);
+                            totalCapital += Number(inv.quantity) * (Number(inv.costPrice) || 0);
+                        }
+                    });
+                }
                 return { totalStock, totalCapital };
             }, [inventory]);
 
             // SEARCH FILTERS
             const getTemplateDisplayName = (t) => {
                 if (!t) return 'Sản phẩm đã xóa';
-                if (t.category === 'Keycap') return `[Keycap] ${t.brand} ${t.name}`;
-                return `[${t.category}] ${t.brand} ${t.model}`;
+                if (t.category === 'Keycap') return `[Keycap] ${t.brand || ''} ${t.name || ''}`.trim();
+                return `[${t.category || 'Khác'}] ${t.brand || ''} ${t.model || ''}`.trim();
             };
 
             const filteredTemplates = useMemo(() => {
-                if (!searchTerms.templates) return templates;
+                const validTemplates = Array.isArray(templates) ? templates : [];
+                if (!searchTerms.templates) return validTemplates;
                 const lowerTerm = searchTerms.templates.toLowerCase();
-                return templates.filter(t => 
-                    String(t.model || '').toLowerCase().includes(lowerTerm) || 
-                    String(t.brand || '').toLowerCase().includes(lowerTerm) ||
-                    String(t.name || '').toLowerCase().includes(lowerTerm)
+                return validTemplates.filter(t => 
+                    t && (
+                        String(t.model || '').toLowerCase().includes(lowerTerm) || 
+                        String(t.brand || '').toLowerCase().includes(lowerTerm) ||
+                        String(t.name || '').toLowerCase().includes(lowerTerm)
+                    )
                 );
             }, [templates, searchTerms.templates]);
 
             const filteredInventory = useMemo(() => {
-                if (!searchTerms.inventory) return inventory;
+                const validInventory = Array.isArray(inventory) ? inventory : [];
+                const validTemplates = Array.isArray(templates) ? templates : [];
+                
+                if (!searchTerms.inventory) return validInventory;
                 const lowerTerm = searchTerms.inventory.toLowerCase();
-                return inventory.filter(inv => {
-                    const t = templates.find(temp => temp.id === inv.templateId);
+                return validInventory.filter(inv => {
+                    if (!inv) return false;
+                    const t = validTemplates.find(temp => temp && temp.id === inv.templateId);
                     if (!t) return false;
                     return String(t.model || '').toLowerCase().includes(lowerTerm) || 
                            String(t.brand || '').toLowerCase().includes(lowerTerm) ||
@@ -185,9 +203,9 @@
             }, [inventory, templates, searchTerms.inventory]);
 
             const dropdownFilteredTemplates = useMemo(() => {
-                return templates.filter(t => getTemplateDisplayName(t).toLowerCase().includes(templateSearchText.toLowerCase()));
+                const validTemplates = Array.isArray(templates) ? templates : [];
+                return validTemplates.filter(t => t && getTemplateDisplayName(t).toLowerCase().includes(templateSearchText.toLowerCase()));
             }, [templates, templateSearchText]);
-
 
             // IMAGE HANDLERS
             const processImage = (file, callback) => {
@@ -229,14 +247,16 @@
             // ACTIONS
             const handleAddTemplate = (e) => {
                 e.preventDefault();
+                if(!templateForm.brand) return showToast('Vui lòng nhập thương hiệu', 'error');
+                
                 const newTemplate = { 
                     ...templateForm, 
-                    id: 'tmpl_' + Date.now().toString(),
-                    importPrice: Number(templateForm.importPrice),
-                    exportPrice: Number(templateForm.exportPrice),
+                    id: 'tmpl_' + Date.now().toString() + Math.random().toString(36).substr(2, 5),
+                    importPrice: Number(templateForm.importPrice) || 0,
+                    exportPrice: Number(templateForm.exportPrice) || 0,
                     createdAt: new Date().toISOString() 
                 };
-                setTemplates(prev => [newTemplate, ...prev]);
+                setTemplates(prev => [newTemplate, ...(Array.isArray(prev) ? prev : [])]);
                 setTemplateForm({ category: 'Bàn phím', brand: '', model: '', switchType: '', color: '', connectionType: '3 mode', profile: 'OEM', name: '', importPrice: 0, exportPrice: 0, image: '' });
                 showToast('Đã thêm mẫu sản phẩm mới!', 'success');
             };
@@ -247,13 +267,13 @@
 
                 const newInv = {
                     ...inventoryForm,
-                    id: 'inv_' + Date.now().toString(),
-                    quantity: Number(inventoryForm.quantity),
-                    costPrice: Number(inventoryForm.costPrice),
-                    sellingPrice: Number(inventoryForm.sellingPrice),
+                    id: 'inv_' + Date.now().toString() + Math.random().toString(36).substr(2, 5),
+                    quantity: Number(inventoryForm.quantity) || 0,
+                    costPrice: Number(inventoryForm.costPrice) || 0,
+                    sellingPrice: Number(inventoryForm.sellingPrice) || 0,
                     dateAdded: new Date().toISOString()
                 };
-                setInventory(prev => [newInv, ...prev]);
+                setInventory(prev => [newInv, ...(Array.isArray(prev) ? prev : [])]);
                 setInventoryForm({ templateId: '', quantity: '', costPrice: '', sellingPrice: '', status: 'Đã về kho', payment: 'Thanh toán online' });
                 setTemplateSearchText('');
                 showToast('Đã thêm hàng vào kho!', 'success');
@@ -263,8 +283,7 @@
                 e.preventDefault();
                 const { form, item, template } = editInvModal;
                 
-                // Cập nhật lô hàng (Inventory)
-                setInventory(prev => prev.map(i => i.id === item.id ? {
+                setInventory(prev => (Array.isArray(prev) ? prev : []).map(i => i.id === item.id ? {
                     ...i,
                     quantity: Number(form.quantity),
                     costPrice: Number(form.costPrice),
@@ -273,9 +292,8 @@
                     payment: form.payment
                 } : i));
 
-                // Cập nhật Template Gốc (Tên & Hình ảnh sẽ đồng bộ cho mọi lô hàng dùng chung mẫu)
                 if (template) {
-                    setTemplates(prev => prev.map(t => t.id === template.id ? {
+                    setTemplates(prev => (Array.isArray(prev) ? prev : []).map(t => t.id === template.id ? {
                         ...t,
                         image: form.image,
                         model: template.category === 'Keycap' ? t.model : form.model,
@@ -290,19 +308,18 @@
             const openEditInvModal = (inv) => {
                 const t = getTemplate(inv.templateId);
                 setEditInvModal({
-                    isOpen: true,
-                    item: inv,
-                    template: t,
+                    isOpen: true, item: inv, template: t,
                     form: {
-                        quantity: inv.quantity,
-                        costPrice: inv.costPrice,
-                        sellingPrice: inv.sellingPrice,
-                        status: inv.status || 'Đã về kho',
-                        payment: inv.payment || 'Thanh toán online',
-                        image: t?.image || '',
-                        model: t?.model || '',
-                        name: t?.name || ''
+                        quantity: inv.quantity || 0, costPrice: inv.costPrice || 0, sellingPrice: inv.sellingPrice || 0,
+                        status: inv.status || 'Đã về kho', payment: inv.payment || 'Thanh toán online',
+                        image: t?.image || '', model: t?.model || '', name: t?.name || ''
                     }
+                });
+            };
+
+            const openSellModal = (inv) => {
+                setSellModal({
+                    isOpen: true, item: inv, qty: 1, type: 'Ship COD', price: inv.sellingPrice || 0
                 });
             };
 
@@ -310,106 +327,110 @@
                 e.preventDefault();
                 const { item, qty, type, price } = sellModal;
                 if(qty > item.quantity) return showToast('Số lượng bán vượt quá tồn kho!', 'error');
+                if(qty <= 0) return showToast('Số lượng bán phải lớn hơn 0', 'error');
 
                 const saleData = {
-                    id: 'tx_' + Date.now().toString(),
-                    inventoryId: item.id,
-                    templateId: item.templateId,
-                    quantitySold: Number(qty),
-                    actualSellingPrice: Number(price),
-                    costPrice: item.costPrice || 0,
-                    deliveryType: type,
+                    id: 'tx_' + Date.now().toString() + Math.random().toString(36).substr(2, 5),
+                    inventoryId: item.id, templateId: item.templateId,
+                    quantitySold: Number(qty), actualSellingPrice: Number(price),
+                    costPrice: item.costPrice || 0, deliveryType: type,
                     saleDate: new Date().toISOString()
                 };
 
-                setInventory(prev => prev.map(inv => inv.id === item.id ? { ...inv, quantity: inv.quantity - qty } : inv));
-                setSales(prev => [saleData, ...prev]);
+                setInventory(prev => (Array.isArray(prev) ? prev : []).map(inv => inv.id === item.id ? { ...inv, quantity: inv.quantity - qty } : inv));
+                setSales(prev => [saleData, ...(Array.isArray(prev) ? prev : [])]);
                 setSellModal({ isOpen: false, item: null, qty: 1, type: 'Ship COD', price: 0 });
                 showToast(`Đã chốt đơn thành công ${qty} sản phẩm!`, 'success');
             };
 
             const handleDeleteTemplate = (id) => {
-                const isUsed = inventory.some(inv => inv.templateId === id);
+                const isUsed = (Array.isArray(inventory) ? inventory : []).some(inv => inv.templateId === id);
                 if (isUsed) {
                     showToast('Không thể xóa mẫu đang có hàng trong kho!', 'error');
                     return;
                 }
-                setTemplates(prev => prev.filter(t => t.id !== id));
-                showToast('Đã xóa mẫu sản phẩm', 'info');
+                if(window.confirm('Bạn có chắc chắn muốn xóa mẫu sản phẩm này?')) {
+                    setTemplates(prev => (Array.isArray(prev) ? prev : []).filter(t => t.id !== id));
+                    showToast('Đã xóa mẫu sản phẩm', 'info');
+                }
             };
 
             const handleDeleteInventory = (id) => {
-                setInventory(prev => prev.filter(i => i.id !== id));
-                showToast('Đã xóa lô hàng khỏi kho', 'info');
+                if(window.confirm('Bạn có chắc chắn muốn xóa lô hàng này khỏi kho?')) {
+                    setInventory(prev => (Array.isArray(prev) ? prev : []).filter(i => i.id !== id));
+                    showToast('Đã xóa lô hàng khỏi kho', 'info');
+                }
             };
 
             const handleDeleteSale = (saleId) => {
-                const sale = sales.find(s => s.id === saleId);
+                const sale = (Array.isArray(sales) ? sales : []).find(s => s.id === saleId);
                 if (!sale) return;
 
                 const isRestore = window.confirm('Bạn có muốn HOÀN LẠI số lượng của đơn này vào kho không?\n(Nhấn OK để Hoàn vào kho, Cancel để Chỉ xóa lịch sử)');
                 
                 if (isRestore) {
                     setInventory(prev => {
-                        const invExists = prev.find(i => i.id === sale.inventoryId);
+                        const safePrev = Array.isArray(prev) ? prev : [];
+                        const invExists = safePrev.find(i => i.id === sale.inventoryId);
                         if (invExists) {
-                            return prev.map(i => i.id === sale.inventoryId ? { ...i, quantity: Number(i.quantity) + Number(sale.quantitySold) } : i);
+                            return safePrev.map(i => i.id === sale.inventoryId ? { ...i, quantity: Number(i.quantity) + Number(sale.quantitySold) } : i);
                         } else {
                             const restoredInv = {
-                                id: sale.inventoryId,
-                                templateId: sale.templateId,
-                                quantity: Number(sale.quantitySold),
-                                costPrice: sale.costPrice,
-                                sellingPrice: sale.actualSellingPrice,
-                                status: 'Đã về kho',
-                                payment: 'Hoàn trả',
-                                dateAdded: new Date().toISOString()
+                                id: sale.inventoryId, templateId: sale.templateId,
+                                quantity: Number(sale.quantitySold), costPrice: sale.costPrice,
+                                sellingPrice: sale.actualSellingPrice, status: 'Đã về kho',
+                                payment: 'Hoàn trả', dateAdded: new Date().toISOString()
                             };
-                            return [restoredInv, ...prev];
+                            return [restoredInv, ...safePrev];
                         }
                     });
                     showToast('Đã hoàn số lượng vào kho và xóa đơn!', 'success');
                 } else {
                     showToast('Đã xóa lịch sử đơn hàng', 'info');
                 }
-                
-                setSales(prev => prev.filter(s => s.id !== saleId));
+                setSales(prev => (Array.isArray(prev) ? prev : []).filter(s => s.id !== saleId));
             };
 
-            // SYNC CLOUD
             const handleSaveSyncUrl = () => {
                 localStorage.setItem('gearShop_syncUrl_pro', syncUrl.trim());
-                showToast('Đã lưu link kết nối!', 'success');
+                showToast('Đã lưu link kết nối API!', 'success');
             };
 
             const syncToCloud = async () => {
-                if(!syncUrl) return showToast('Vui lòng lưu link API trước!', 'error');
-                setSyncStatus({ message: 'Đang đồng bộ...', type: 'text-indigo-400 animate-pulse' });
+                if(!syncUrl) return showToast('Vui lòng lưu link API Web App trước!', 'error');
+                setSyncStatus({ message: 'Đang đồng bộ lên Google Drive...', type: 'text-indigo-400 animate-pulse' });
+                
                 try {
                     const response = await fetch(syncUrl, { 
                         method: 'POST', 
                         headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
-                        body: JSON.stringify({ templates, inventory, transactions: sales }) 
+                        body: JSON.stringify({ templates, inventory, transactions: sales }),
+                        redirect: "follow"
                     });
+                    
                     const result = await response.json();
-                    if(result.status === 'success') {
+                    if(result.status === 'success' || result.success) {
                         setSyncStatus({ message: 'Đồng bộ thành công rực rỡ! ✓', type: 'text-emerald-400' });
                         showToast('Đồng bộ lên Cloud thành công!', 'success');
+                    } else {
+                        throw new Error("API trả về lỗi");
                     }
                 } catch (e) { 
-                    setSyncStatus({ message: 'Lỗi kết nối API', type: 'text-rose-400' });
-                    showToast('Lỗi đẩy dữ liệu', 'error');
+                    console.error("Lỗi đồng bộ:", e);
+                    setSyncStatus({ message: 'Lỗi kết nối API. Hãy kiểm tra lại link.', type: 'text-rose-400' });
+                    showToast('Lỗi đẩy dữ liệu (CORS/Network)', 'error');
                 }
             };
 
             const syncFromCloud = async () => {
-                if(!syncUrl) return showToast('Vui lòng lưu link API trước!', 'error');
+                if(!syncUrl) return showToast('Vui lòng lưu link API Web App trước!', 'error');
                 if(!window.confirm('CẢNH BÁO: Dữ liệu từ Cloud sẽ GHI ĐÈ toàn bộ dữ liệu trên máy này. Tiếp tục?')) return;
                 
-                setSyncStatus({ message: 'Đang tải về...', type: 'text-indigo-400 animate-pulse' });
+                setSyncStatus({ message: 'Đang tải về từ Google Drive...', type: 'text-indigo-400 animate-pulse' });
                 try {
-                    const response = await fetch(syncUrl);
+                    const response = await fetch(syncUrl, { method: 'GET', redirect: "follow" });
                     const data = await response.json();
+                    
                     if(data.templates) setTemplates(data.templates);
                     if(data.inventory) setInventory(data.inventory);
                     if(data.transactions) setSales(data.transactions);
@@ -417,7 +438,8 @@
                     setSyncStatus({ message: 'Đã nạp dữ liệu thành công!', type: 'text-emerald-400' });
                     showToast('Tải dữ liệu thành công!', 'success');
                 } catch (e) { 
-                    setSyncStatus({ message: 'Lỗi tải dữ liệu', type: 'text-rose-400' });
+                    console.error("Lỗi tải dữ liệu:", e);
+                    setSyncStatus({ message: 'Lỗi tải dữ liệu. Kiểm tra quyền truy cập.', type: 'text-rose-400' });
                     showToast('Không thể tải dữ liệu', 'error');
                 }
             };
@@ -430,16 +452,16 @@
             };
 
             // HELPERS
-            const getTemplate = (tId) => templates.find(x => x.id === tId);
+            const getTemplate = (tId) => (Array.isArray(templates) ? templates : []).find(x => x && x.id === tId);
             const getTemplateDetails = (t) => {
                 if (!t) return '';
-                if (t.category === 'Bàn phím') return `${t.switchType} • ${t.color}`;
-                if (t.category === 'Chuột') return `${t.connectionType} • ${t.color}`;
-                if (t.category === 'Keycap') return `Profile ${t.profile}`;
+                if (t.category === 'Bàn phím') return `${t.switchType || ''} • ${t.color || ''}`;
+                if (t.category === 'Chuột') return `${t.connectionType || ''} • ${t.color || ''}`;
+                if (t.category === 'Keycap') return `Profile ${t.profile || ''}`;
                 return `${t.switchType || t.connectionType || ''} ${t.color || ''}`;
             };
 
-            if (!LayoutDashboard) return <div className="flex h-screen items-center justify-center p-4 text-center">Đang tải tài nguyên hoặc mạng gặp sự cố. Vui lòng tải lại trang (F5)...</div>;
+            if (!LayoutDashboard) return <div className="flex h-screen items-center justify-center p-4 text-center font-medium">Đang tải tài nguyên hoặc mạng gặp sự cố. Vui lòng tải lại trang (F5)...</div>;
 
             return (
                 <div className="flex h-screen bg-slate-50 font-sans text-slate-800 overflow-hidden selection:bg-blue-200">
@@ -451,9 +473,9 @@
                                 ${toast.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 
                                   toast.type === 'error' ? 'bg-rose-50 border-rose-200 text-rose-800' : 
                                   'bg-blue-50 border-blue-200 text-blue-800'}`}>
-                                {toast.type === 'success' && <CheckCircle2 className="w-5 h-5 mr-3 text-emerald-500" />}
-                                {toast.type === 'error' && <AlertCircle className="w-5 h-5 mr-3 text-rose-500" />}
-                                {toast.type === 'info' && <Info className="w-5 h-5 mr-3 text-blue-500" />}
+                                {toast.type === 'success' && CheckCircle2 && <CheckCircle2 className="w-5 h-5 mr-3 text-emerald-500" />}
+                                {toast.type === 'error' && AlertCircle && <AlertCircle className="w-5 h-5 mr-3 text-rose-500" />}
+                                {toast.type === 'info' && Info && <Info className="w-5 h-5 mr-3 text-blue-500" />}
                                 <p className="font-medium text-sm">{toast.message}</p>
                             </div>
                         ))}
@@ -463,7 +485,7 @@
                     <div className="w-64 bg-slate-900 text-slate-300 flex flex-col shadow-xl z-20 hidden md:flex shrink-0">
                         <div className="p-6 bg-slate-950/50">
                             <h1 className="text-2xl font-black text-white flex items-center tracking-tight">
-                                <LayoutDashboard className="mr-3 text-blue-500" /> GearPro<span className="text-blue-500">.</span>
+                                {LayoutDashboard && <LayoutDashboard className="mr-3 text-blue-500" />} GearPro<span className="text-blue-500">.</span>
                             </h1>
                             <p className="text-xs text-slate-500 mt-2 font-medium uppercase tracking-wider">Workspace</p>
                         </div>
@@ -476,12 +498,12 @@
                             ].map(tab => (
                                 <button key={tab.id} onClick={() => setActiveTab(tab.id)} 
                                     className={`w-full flex items-center px-4 py-3.5 rounded-xl transition-all duration-200 font-medium ${activeTab === tab.id ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40 translate-x-1' : 'hover:bg-slate-800 hover:text-white hover:translate-x-1'}`}>
-                                    <tab.icon size={20} className="mr-3" /> {tab.label}
+                                    {tab.icon && <tab.icon size={20} className="mr-3" />} {tab.label}
                                 </button>
                             ))}
                         </nav>
                         <div className="p-4 text-xs text-center text-slate-600 border-t border-slate-800">
-                            GearManager Pro v2.2
+                            GearManager Pro v2.3.1
                         </div>
                     </div>
 
@@ -491,12 +513,12 @@
                         {/* HEADER MOBILE */}
                         <div className="md:hidden bg-white p-4 border-b flex justify-between items-center shrink-0 z-20 shadow-sm">
                             <h1 className="text-xl font-black text-slate-900 flex items-center">
-                                <LayoutDashboard className="w-6 h-6 mr-2 text-blue-600" /> GearPro
+                                {LayoutDashboard && <LayoutDashboard className="w-6 h-6 mr-2 text-blue-600" />} GearPro
                             </h1>
                             <div className="flex space-x-1">
                                 {[{id:'dashboard', icon: TrendingUp}, {id:'templates', icon: Database}, {id:'inventory', icon: PackagePlus}, {id:'sync', icon: RefreshCw}].map(t => (
                                     <button key={t.id} onClick={() => setActiveTab(t.id)} className={`p-2.5 rounded-xl transition-colors ${activeTab===t.id?'bg-blue-100 text-blue-600':'text-slate-500 hover:bg-slate-100'}`}>
-                                        <t.icon size={20}/>
+                                        {t.icon && <t.icon size={20}/>}
                                     </button>
                                 ))}
                             </div>
@@ -504,11 +526,11 @@
 
                         {/* CONTENT AREA */}
                         <div className="flex-1 overflow-auto bg-slate-50/50">
-                            <div className="p-4 md:p-8 max-w-[1400px] mx-auto space-y-8">
+                            <div className="p-4 md:p-8 max-w-[1400px] mx-auto space-y-8 animate-fade-in">
                                 
-                                {/* ---------------- TAB 1: DASHBOARD ---------------- */}
+                                {/* ================= TAB 1: DASHBOARD ================= */}
                                 {activeTab === 'dashboard' && (
-                                <div className="space-y-6 animate-fade-in">
+                                <div className="space-y-6">
                                     <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
                                         <div>
                                             <h2 className="text-3xl font-bold text-slate-900 tracking-tight">Tổng quan kinh doanh</h2>
@@ -526,63 +548,61 @@
 
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center hover:shadow-md transition-shadow">
-                                            <div className="p-4 bg-emerald-100 text-emerald-600 rounded-2xl mr-5"><DollarSign size={28} /></div>
+                                            <div className="p-4 bg-emerald-100 text-emerald-600 rounded-2xl mr-5">{DollarSign && <DollarSign size={28} />}</div>
                                             <div><p className="text-sm font-medium text-slate-500 mb-1">Doanh thu</p><h3 className="text-2xl font-black text-slate-800">{formatCurrency(dashboardStats.revenue)}</h3></div>
                                         </div>
                                         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center hover:shadow-md transition-shadow">
-                                            <div className="p-4 bg-violet-100 text-violet-600 rounded-2xl mr-5"><TrendingUp size={28} /></div>
+                                            <div className="p-4 bg-violet-100 text-violet-600 rounded-2xl mr-5">{TrendingUp && <TrendingUp size={28} />}</div>
                                             <div><p className="text-sm font-medium text-slate-500 mb-1">Lợi nhuận ròng</p><h3 className="text-2xl font-black text-violet-600">{formatCurrency(dashboardStats.profit)}</h3></div>
                                         </div>
                                         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center hover:shadow-md transition-shadow">
-                                            <div className="p-4 bg-blue-100 text-blue-600 rounded-2xl mr-5"><Box size={28} /></div>
+                                            <div className="p-4 bg-blue-100 text-blue-600 rounded-2xl mr-5">{Box && <Box size={28} />}</div>
                                             <div><p className="text-sm font-medium text-slate-500 mb-1">Sản phẩm đã bán</p><h3 className="text-2xl font-black text-slate-800">{dashboardStats.itemsSold} <span className="text-base font-medium text-slate-400">cái</span></h3></div>
                                         </div>
                                     </div>
 
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
                                         <div className="bg-gradient-to-br from-slate-900 to-slate-800 p-6 rounded-3xl shadow-lg border border-slate-800 flex items-center">
-                                            <div className="p-4 bg-white/10 text-white rounded-2xl mr-5 backdrop-blur-sm"><Database size={28} /></div>
+                                            <div className="p-4 bg-white/10 text-white rounded-2xl mr-5 backdrop-blur-sm">{Database && <Database size={28} />}</div>
                                             <div><p className="text-sm font-medium text-slate-300 mb-1">Vốn lưu động trong kho</p><h3 className="text-2xl font-black text-white">{formatCurrency(inventoryStats.totalCapital)}</h3></div>
                                         </div>
                                         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center hover:shadow-md transition-shadow">
-                                            <div className="p-4 bg-orange-100 text-orange-600 rounded-2xl mr-5"><PackagePlus size={28} /></div>
+                                            <div className="p-4 bg-orange-100 text-orange-600 rounded-2xl mr-5">{PackagePlus && <PackagePlus size={28} />}</div>
                                             <div><p className="text-sm font-medium text-slate-500 mb-1">Tồn kho hiện tại</p><h3 className="text-2xl font-black text-slate-800">{inventoryStats.totalStock} <span className="text-base font-medium text-slate-400">sản phẩm</span></h3></div>
                                         </div>
                                     </div>
 
-                                    <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden mt-8">
+                                    {/* Recent Sales List */}
+                                    <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden mt-6">
                                         <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-                                            <h3 className="text-lg font-bold">Giao dịch gần đây</h3>
+                                            <h3 className="text-lg font-bold text-slate-800">Giao dịch gần đây ({dashboardFilter})</h3>
                                             <button onClick={() => setActiveTab('sales')} className="text-sm text-blue-600 font-medium hover:underline">Xem tất cả</button>
                                         </div>
                                         <div className="overflow-x-auto">
-                                            <table className="w-full text-left border-collapse min-w-[600px]">
-                                                <thead><tr className="bg-slate-50 text-slate-500 text-sm border-b border-slate-100">
-                                                    <th className="p-4 font-semibold">Thời gian</th>
-                                                    <th className="p-4 font-semibold">Sản phẩm</th>
-                                                    <th className="p-4 font-semibold text-center">Giao hàng</th>
-                                                    <th className="p-4 font-semibold text-right">Lợi nhuận</th>
-                                                </tr></thead>
+                                            <table className="w-full text-sm text-left">
+                                                <thead className="text-xs text-slate-500 uppercase bg-slate-50">
+                                                    <tr>
+                                                        <th className="px-6 py-4">Sản phẩm</th>
+                                                        <th className="px-6 py-4">Số lượng</th>
+                                                        <th className="px-6 py-4">Doanh thu</th>
+                                                        <th className="px-6 py-4">Thời gian</th>
+                                                    </tr>
+                                                </thead>
                                                 <tbody className="divide-y divide-slate-100">
-                                                    {dashboardStats.filteredSales.length === 0 ? 
-                                                        <tr><td colSpan="4" className="p-12 text-center text-slate-400 flex flex-col items-center"><Box className="w-12 h-12 mb-3 text-slate-200"/> Chưa có dữ liệu giao dịch</td></tr> 
-                                                    : dashboardStats.filteredSales.slice(0, 5).map(sale => {
+                                                    {dashboardStats.filteredSales.slice(0, 5).map(sale => {
                                                         const t = getTemplate(sale.templateId);
                                                         return (
-                                                        <tr key={sale.id} className="hover:bg-slate-50 transition-colors">
-                                                            <td className="p-4 text-sm text-slate-600 font-medium">{formatDate(sale.saleDate).split(' ')[0]}</td>
-                                                            <td className="p-4 flex items-center space-x-3">
-                                                                {t?.image ? <img src={t.image} alt="thumb" className="w-10 h-10 object-cover rounded-xl shadow-sm shrink-0" /> : <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center text-slate-400 shrink-0"><ImageIcon size={18}/></div>}
-                                                                <p className="font-semibold text-slate-800">{getTemplateDisplayName(t)} <span className="text-slate-400 font-normal">x{sale.quantitySold}</span></p>
-                                                            </td>
-                                                            <td className="p-4 text-center">
-                                                                <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${String(sale.deliveryType) === 'Ship COD' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>
-                                                                    {String(sale.deliveryType) === 'Ship COD' ? <Truck size={12} className="mr-1"/> : <Store size={12} className="mr-1"/>} {sale.deliveryType}
-                                                                </span>
-                                                            </td>
-                                                            <td className="p-4 text-right font-black text-violet-600">{formatCurrency((Number(sale.actualSellingPrice) - Number(sale.costPrice || 0)) * Number(sale.quantitySold))}</td>
-                                                        </tr>
-                                                    )})}
+                                                            <tr key={sale.id} className="hover:bg-slate-50/50">
+                                                                <td className="px-6 py-4 font-medium text-slate-800">{getTemplateDisplayName(t)}</td>
+                                                                <td className="px-6 py-4">{sale.quantitySold}</td>
+                                                                <td className="px-6 py-4 text-emerald-600 font-semibold">{formatCurrency(sale.actualSellingPrice * sale.quantitySold)}</td>
+                                                                <td className="px-6 py-4 text-slate-500">{formatDate(sale.saleDate)}</td>
+                                                            </tr>
+                                                        )
+                                                    })}
+                                                    {dashboardStats.filteredSales.length === 0 && (
+                                                        <tr><td colSpan="4" className="px-6 py-8 text-center text-slate-500">Không có giao dịch nào trong khoảng thời gian này.</td></tr>
+                                                    )}
                                                 </tbody>
                                             </table>
                                         </div>
@@ -590,316 +610,306 @@
                                 </div>
                                 )}
 
-                                {/* ---------------- TAB 2: MẪU SẢN PHẨM ---------------- */}
+                                {/* ================= TAB 2: TEMPLATES ================= */}
                                 {activeTab === 'templates' && (
-                                <div className="space-y-6 animate-fade-in">
-                                    <div><h2 className="text-3xl font-bold text-slate-900 tracking-tight">Cơ sở Dữ liệu Mẫu</h2><p className="text-slate-500 mt-1">Tạo thông tin cố định cho sản phẩm trước khi nhập kho</p></div>
-                                    
-                                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                                        <div className="lg:col-span-4 bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 h-fit">
-                                            <h3 className="text-xl font-bold mb-6 flex items-center text-slate-800"><Plus className="mr-2 text-blue-600"/> Thêm mẫu mới</h3>
-                                            <form onSubmit={handleAddTemplate} className="space-y-5">
-                                                <div>
-                                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Hình ảnh</label>
-                                                    <div className="flex items-center space-x-4">
-                                                        {templateForm.image && (
-                                                            <div className="relative group">
-                                                                <img src={templateForm.image} alt="Preview" className="w-20 h-20 object-cover rounded-2xl shadow-sm border" />
-                                                                <button type="button" onClick={() => setTemplateForm({...templateForm, image: ''})} className="absolute -top-2 -right-2 bg-rose-500 text-white rounded-full p-1.5 shadow-md opacity-0 group-hover:opacity-100 transition-opacity"><X size={14}/></button>
+                                <div className="space-y-6">
+                                    <div>
+                                        <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Danh mục Mẫu sản phẩm</h2>
+                                        <p className="text-slate-500 mt-1">Tạo khung thông tin chuẩn trước khi nhập kho</p>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                        {/* Thêm Mẫu Mới */}
+                                        <div className="lg:col-span-1">
+                                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 sticky top-4">
+                                                <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center">{Database && <Database className="mr-2 text-blue-500" size={20}/>} Thêm Mẫu Mới</h3>
+                                                <form onSubmit={handleAddTemplate} className="space-y-4">
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-slate-700 mb-1">Loại thiết bị</label>
+                                                        <select className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                                                            value={templateForm.category} onChange={e => setTemplateForm({...templateForm, category: e.target.value})}>
+                                                            <option value="Bàn phím">Bàn phím cơ</option>
+                                                            <option value="Chuột">Chuột Gaming/VP</option>
+                                                            <option value="Keycap">Bộ Keycap</option>
+                                                            <option value="Khác">Phụ kiện khác</option>
+                                                        </select>
+                                                    </div>
+                                                    
+                                                    <div className="grid grid-cols-2 gap-3">
+                                                        <div>
+                                                            <label className="block text-sm font-medium text-slate-700 mb-1">Thương hiệu *</label>
+                                                            <input required type="text" placeholder="VD: Akko" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                                                                value={templateForm.brand} onChange={e => setTemplateForm({...templateForm, brand: e.target.value})} />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-sm font-medium text-slate-700 mb-1">{templateForm.category === 'Keycap' ? 'Tên bộ' : 'Mã Model'} *</label>
+                                                            <input required type="text" placeholder="VD: 3098N" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                                                                value={templateForm.category === 'Keycap' ? templateForm.name : templateForm.model} 
+                                                                onChange={e => {
+                                                                    if(templateForm.category === 'Keycap') setTemplateForm({...templateForm, name: e.target.value});
+                                                                    else setTemplateForm({...templateForm, model: e.target.value});
+                                                                }} />
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Dynamic Fields based on Category */}
+                                                    {templateForm.category === 'Bàn phím' && (
+                                                        <div className="grid grid-cols-2 gap-3">
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-slate-700 mb-1">Loại Switch</label>
+                                                                <input type="text" placeholder="Red, Blue..." className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none"
+                                                                    value={templateForm.switchType} onChange={e => setTemplateForm({...templateForm, switchType: e.target.value})} />
                                                             </div>
-                                                        )}
-                                                        <label className="flex flex-col items-center justify-center flex-1 h-20 border-2 border-dashed border-slate-300 rounded-2xl hover:bg-blue-50 hover:border-blue-300 cursor-pointer transition-colors group">
-                                                            <Upload size={20} className="text-slate-400 group-hover:text-blue-500 mb-1" />
-                                                            <span className="text-xs font-semibold text-slate-500 group-hover:text-blue-600">Chọn ảnh</span>
-                                                            <input type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
-                                                        </label>
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-slate-700 mb-1">Màu sắc</label>
+                                                                <input type="text" placeholder="Đen, Trắng..." className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none"
+                                                                    value={templateForm.color} onChange={e => setTemplateForm({...templateForm, color: e.target.value})} />
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                    {templateForm.category === 'Chuột' && (
+                                                        <div className="grid grid-cols-2 gap-3">
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-slate-700 mb-1">Kết nối</label>
+                                                                <input type="text" placeholder="Có dây, Wireless..." className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none"
+                                                                    value={templateForm.connectionType} onChange={e => setTemplateForm({...templateForm, connectionType: e.target.value})} />
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-slate-700 mb-1">Màu sắc</label>
+                                                                <input type="text" placeholder="Đen, Trắng..." className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none"
+                                                                    value={templateForm.color} onChange={e => setTemplateForm({...templateForm, color: e.target.value})} />
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                    {templateForm.category === 'Keycap' && (
+                                                        <div>
+                                                            <label className="block text-sm font-medium text-slate-700 mb-1">Profile</label>
+                                                            <input type="text" placeholder="OEM, Cherry, XDA..." className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none"
+                                                                value={templateForm.profile} onChange={e => setTemplateForm({...templateForm, profile: e.target.value})} />
+                                                        </div>
+                                                    )}
+
+                                                    <div className="grid grid-cols-2 gap-3">
+                                                        <div>
+                                                            <label className="block text-sm font-medium text-slate-700 mb-1">Giá nhập (gợi ý)</label>
+                                                            <input type="number" min="0" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none"
+                                                                value={templateForm.importPrice} onChange={e => setTemplateForm({...templateForm, importPrice: e.target.value})} />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-sm font-medium text-slate-700 mb-1">Giá bán (gợi ý)</label>
+                                                            <input type="number" min="0" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none"
+                                                                value={templateForm.exportPrice} onChange={e => setTemplateForm({...templateForm, exportPrice: e.target.value})} />
+                                                        </div>
                                                     </div>
-                                                </div>
 
-                                                <div>
-                                                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">Danh mục</label>
-                                                    <select value={templateForm.category} onChange={(e) => setTemplateForm({...templateForm, category: e.target.value, model: '', name: ''})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-medium">
-                                                        <option>Bàn phím</option><option>Chuột</option><option>Keycap</option><option>Tai nghe</option><option>Switch</option>
-                                                    </select>
-                                                </div>
-                                                
-                                                <div><label className="block text-sm font-semibold text-slate-700 mb-1.5">Hãng (Thương hiệu)</label><input required placeholder="VD: Aula, Akko..." value={templateForm.brand} onChange={e => setTemplateForm({...templateForm, brand: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 transition-all" /></div>
-                                                
-                                                {templateForm.category === 'Bàn phím' && (
-                                                    <>
-                                                    <div><label className="block text-sm font-semibold text-slate-700 mb-1.5">Mã SP</label><input required placeholder="VD: F75" value={templateForm.model} onChange={e => setTemplateForm({...templateForm, model: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 transition-all" /></div>
-                                                    <div><label className="block text-sm font-semibold text-slate-700 mb-1.5">Switch</label><input placeholder="VD: Greywood V3" value={templateForm.switchType} onChange={e => setTemplateForm({...templateForm, switchType: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 transition-all" /></div>
-                                                    <div><label className="block text-sm font-semibold text-slate-700 mb-1.5">Màu sắc</label><input placeholder="VD: Trắng Xanh" value={templateForm.color} onChange={e => setTemplateForm({...templateForm, color: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 transition-all" /></div>
-                                                    </>
-                                                )}
-
-                                                {templateForm.category === 'Chuột' && (
-                                                    <>
-                                                    <div><label className="block text-sm font-semibold text-slate-700 mb-1.5">Mã SP</label><input required value={templateForm.model} onChange={e => setTemplateForm({...templateForm, model: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 transition-all" /></div>
-                                                    <div><label className="block text-sm font-semibold text-slate-700 mb-1.5">Kết nối</label>
-                                                        <select value={templateForm.connectionType} onChange={e => setTemplateForm({...templateForm, connectionType: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 transition-all">
-                                                            <option>3 mode</option><option>Có dây</option><option>Bluetooth</option><option>2.4G (Dongle)</option>
-                                                        </select>
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-slate-700 mb-1">Hình ảnh (Auto resize)</label>
+                                                        <div className="flex items-center space-x-3">
+                                                            {templateForm.image ? (
+                                                                <img src={templateForm.image} alt="Preview" className="h-12 w-12 rounded-lg object-cover border" />
+                                                            ) : (
+                                                                <div className="h-12 w-12 rounded-lg bg-slate-100 border border-dashed border-slate-300 flex items-center justify-center text-slate-400">{ImageIcon && <ImageIcon size={20}/>}</div>
+                                                            )}
+                                                            <input type="file" accept="image/*" onChange={handleImageChange} className="text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"/>
+                                                        </div>
                                                     </div>
-                                                    <div><label className="block text-sm font-semibold text-slate-700 mb-1.5">Màu sắc</label><input value={templateForm.color} onChange={e => setTemplateForm({...templateForm, color: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 transition-all" /></div>
-                                                    </>
-                                                )}
 
-                                                {templateForm.category === 'Keycap' && (
-                                                    <>
-                                                    <div><label className="block text-sm font-semibold text-slate-700 mb-1.5">Profile</label>
-                                                        <select value={templateForm.profile} onChange={e => setTemplateForm({...templateForm, profile: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 transition-all">
-                                                            <option>OEM</option><option>Cherry</option><option>SA</option><option>XDA</option><option>MOA</option>
-                                                        </select>
-                                                    </div>
-                                                    <div><label className="block text-sm font-semibold text-slate-700 mb-1.5">Chủ đề/Tên</label><input required value={templateForm.name} onChange={e => setTemplateForm({...templateForm, name: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 transition-all" /></div>
-                                                    </>
-                                                )}
-
-                                                {!['Bàn phím', 'Chuột', 'Keycap'].includes(templateForm.category) && (
-                                                    <>
-                                                    <div><label className="block text-sm font-semibold text-slate-700 mb-1.5">Tên / Mã SP</label><input required value={templateForm.model} onChange={e => setTemplateForm({...templateForm, model: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 transition-all" /></div>
-                                                    <div><label className="block text-sm font-semibold text-slate-700 mb-1.5">Phân loại</label><input value={templateForm.color} onChange={e => setTemplateForm({...templateForm, color: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 transition-all" /></div>
-                                                    </>
-                                                )}
-
-                                                <div className="grid grid-cols-2 gap-4 pt-2">
-                                                    <div><label className="block text-sm font-semibold text-slate-700 mb-1.5">Giá nhập chuẩn</label><input required type="number" value={templateForm.importPrice} onChange={e => setTemplateForm({...templateForm, importPrice: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 transition-all" /></div>
-                                                    <div><label className="block text-sm font-semibold text-slate-700 mb-1.5 text-blue-600">Giá bán đề xuất</label><input required type="number" value={templateForm.exportPrice} onChange={e => setTemplateForm({...templateForm, exportPrice: e.target.value})} className="w-full p-3 bg-blue-50 border border-blue-200 rounded-xl outline-none focus:border-blue-500 font-bold text-blue-700 transition-all" /></div>
-                                                </div>
-
-                                                <button type="submit" className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold flex justify-center items-center hover:bg-slate-800 transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5 mt-4">
-                                                    Thêm vào Thư viện
-                                                </button>
-                                            </form>
-                                        </div>
-                                        
-                                        <div className="lg:col-span-8 bg-white rounded-3xl shadow-sm border border-slate-100 flex flex-col overflow-hidden h-fit">
-                                            <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-50/50">
-                                                <h3 className="font-bold text-lg">Danh sách Mẫu <span className="text-slate-400 font-normal text-sm ml-2">({filteredTemplates.length} sp)</span></h3>
-                                                <div className="relative w-full sm:w-72">
-                                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                                                    <input type="text" placeholder="Tìm tên, hãng, mã sp..." value={searchTerms.templates} onChange={(e) => setSearchTerms({...searchTerms, templates: e.target.value})} className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 text-sm transition-all shadow-sm" />
-                                                </div>
+                                                    <button type="submit" className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition-colors flex justify-center items-center">
+                                                        {Plus && <Plus size={20} className="mr-2" />} Thêm mẫu sản phẩm
+                                                    </button>
+                                                </form>
                                             </div>
-                                            <div className="overflow-x-auto flex-1">
-                                                <table className="w-full text-left border-collapse min-w-[500px]">
-                                                    <thead><tr className="bg-white text-slate-400 text-xs uppercase tracking-wider border-b border-slate-100">
-                                                        <th className="p-4 font-bold">Sản phẩm</th>
-                                                        <th className="p-4 font-bold">Cấu hình & Giá (VNĐ)</th>
-                                                        <th className="p-4 font-bold text-center">Tác vụ</th>
-                                                    </tr></thead>
-                                                    <tbody className="divide-y divide-slate-100">
-                                                        {filteredTemplates.length === 0 ? <tr><td colSpan="3" className="p-12 text-center text-slate-400"><Database className="w-12 h-12 mx-auto mb-3 opacity-20"/>Không tìm thấy mẫu nào.</td></tr> : filteredTemplates.map(t => (
-                                                            <tr key={t.id} className="hover:bg-slate-50 transition-colors group">
-                                                                <td className="p-4 flex items-center space-x-4">
-                                                                    {t.image ? <img src={t.image} alt="thumb" className="w-14 h-14 object-cover rounded-xl shadow-sm border border-slate-100 shrink-0" /> : <div className="w-14 h-14 bg-slate-100 rounded-xl flex items-center justify-center text-slate-300 shrink-0 border border-slate-200"><ImageIcon size={24}/></div>}
-                                                                    <div>
-                                                                        <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 px-2 py-1 rounded text-slate-500 mb-1.5 inline-block">{t.category}</span>
-                                                                        <p className="font-bold text-slate-800 text-base">{getTemplateDisplayName(t)}</p>
-                                                                    </div>
-                                                                </td>
-                                                                <td className="p-4 text-sm text-slate-600">
-                                                                    <div className="font-medium text-slate-700 mb-1">{getTemplateDetails(t)}</div>
-                                                                    <div className="text-xs bg-slate-100 inline-block px-2 py-1 rounded-lg">
-                                                                        Nhập: <span className="font-semibold text-slate-700">{formatCurrency(t.importPrice)}</span> <span className="mx-1 text-slate-300">|</span> Bán: <span className="text-blue-600 font-bold">{formatCurrency(t.exportPrice)}</span>
-                                                                    </div>
-                                                                </td>
-                                                                <td className="p-4 text-center">
-                                                                    <button onClick={() => handleDeleteTemplate(t.id)} className="p-2.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"><Trash2 size={18}/></button>
-                                                                </td>
-                                                            </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
+                                        </div>
+
+                                        {/* Danh sách Mẫu */}
+                                        <div className="lg:col-span-2 space-y-4">
+                                            <div className="flex bg-white p-2 rounded-xl shadow-sm border border-slate-200 items-center">
+                                                {Search && <Search className="text-slate-400 ml-3" size={20} />}
+                                                <input type="text" placeholder="Tìm kiếm mẫu theo tên, thương hiệu, model..." 
+                                                    className="w-full p-2 outline-none bg-transparent"
+                                                    value={searchTerms.templates} onChange={e => setSearchTerms({...searchTerms, templates: e.target.value})} />
+                                            </div>
+
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                {filteredTemplates.map(t => (
+                                                    <div key={t.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex gap-4 hover:shadow-md transition-shadow">
+                                                        <div className="w-20 h-20 shrink-0 rounded-xl bg-slate-100 flex items-center justify-center overflow-hidden border border-slate-100">
+                                                            {t.image ? <img src={t.image} alt={t.model} className="w-full h-full object-cover" /> : (ImageIcon ? <ImageIcon className="text-slate-300" size={32}/> : <span className="text-xs text-slate-400">No Img</span>)}
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="flex justify-between items-start">
+                                                                <h4 className="font-bold text-slate-800 truncate">{getTemplateDisplayName(t)}</h4>
+                                                                <button onClick={() => handleDeleteTemplate(t.id)} className="text-slate-400 hover:text-rose-500 p-1">{Trash2 && <Trash2 size={16}/>}</button>
+                                                            </div>
+                                                            <p className="text-xs text-slate-500 mt-1">{getTemplateDetails(t)}</p>
+                                                            <div className="mt-2 text-sm flex gap-3 text-slate-600">
+                                                                <span>Nhập: {formatCurrency(t.importPrice)}</span>
+                                                                <span>Bán: <span className="font-semibold text-emerald-600">{formatCurrency(t.exportPrice)}</span></span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                                {filteredTemplates.length === 0 && (
+                                                    <div className="col-span-full py-12 text-center text-slate-500 bg-white rounded-2xl border border-dashed border-slate-300">
+                                                        Không tìm thấy mẫu sản phẩm nào.
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
                                 </div>
                                 )}
 
-                                {/* ---------------- TAB 3: KHO HÀNG ---------------- */}
+                                {/* ================= TAB 3: INVENTORY ================= */}
                                 {activeTab === 'inventory' && (
-                                <div className="space-y-6 animate-fade-in relative">
-                                    <div><h2 className="text-3xl font-bold text-slate-900 tracking-tight">Quản lý Kho hàng</h2><p className="text-slate-500 mt-1">Nhập hàng và kiểm soát tồn kho</p></div>
-                                    
-                                    <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100">
-                                        <div className="flex items-center mb-6"><PackagePlus className="text-emerald-500 mr-2"/><h3 className="font-bold text-lg">Lô hàng mới</h3></div>
-                                        <form onSubmit={handleAddInventory} className="grid grid-cols-1 md:grid-cols-12 gap-5 relative">
-                                            <div className="md:col-span-4 relative">
-                                                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Chọn Mẫu Sản Phẩm *</label>
-                                                {/* THANH TÌM KIẾM MẪU SP */}
+                                <div className="space-y-6">
+                                    <div>
+                                        <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Quản lý Kho hàng</h2>
+                                        <p className="text-slate-500 mt-1">Nhập hàng và kiểm soát tồn kho thực tế</p>
+                                    </div>
+
+                                    {/* Form Nhập Kho */}
+                                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 relative z-10">
+                                        <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center">{PackagePlus && <PackagePlus className="mr-2 text-orange-500" size={20}/>} Thêm Lô Hàng Mới</h3>
+                                        <form onSubmit={handleAddInventory} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                                            
+                                            {/* Custom Dropdown for Template Selection */}
+                                            <div className="md:col-span-2 relative">
+                                                <label className="block text-sm font-medium text-slate-700 mb-1">Chọn mẫu sản phẩm *</label>
                                                 <div className="relative">
-                                                    <input 
-                                                        type="text" 
-                                                        placeholder={inventoryForm.templateId ? getTemplateDisplayName(getTemplate(inventoryForm.templateId)) : "-- Gõ tên để tìm & chọn mẫu --"}
-                                                        value={templateSearchText}
-                                                        onChange={e => {
-                                                            setTemplateSearchText(e.target.value);
-                                                            setIsTemplateDropdownOpen(true);
-                                                        }}
-                                                        onFocus={() => setIsTemplateDropdownOpen(true)}
-                                                        onBlur={() => setTimeout(() => setIsTemplateDropdownOpen(false), 200)}
-                                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 transition-all font-medium text-slate-700"
-                                                    />
+                                                    <div onClick={() => setIsTemplateDropdownOpen(!isTemplateDropdownOpen)} 
+                                                         className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer flex justify-between items-center hover:bg-slate-100">
+                                                        <span className="truncate">{inventoryForm.templateId ? getTemplateDisplayName(getTemplate(inventoryForm.templateId)) : '--- Bấm để chọn ---'}</span>
+                                                        {ChevronDown ? <ChevronDown size={16} className="text-slate-500"/> : <span className="text-slate-500 font-bold">▾</span>}
+                                                    </div>
+                                                    
                                                     {isTemplateDropdownOpen && (
-                                                        <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-60 overflow-y-auto">
-                                                            {dropdownFilteredTemplates.length > 0 ? dropdownFilteredTemplates.map(t => (
-                                                                <div 
-                                                                    key={t.id} 
-                                                                    onClick={() => {
-                                                                        setInventoryForm({...inventoryForm, templateId: t.id, costPrice: t.importPrice, sellingPrice: t.exportPrice});
-                                                                        setTemplateSearchText('');
-                                                                        setIsTemplateDropdownOpen(false);
-                                                                    }}
-                                                                    className="p-3 hover:bg-blue-50 cursor-pointer border-b border-slate-50 last:border-0 flex items-center space-x-3 transition-colors"
-                                                                >
-                                                                    {t.image ? <img src={t.image} className="w-10 h-10 rounded-lg object-cover shadow-sm"/> : <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center"><ImageIcon size={16}/></div>}
-                                                                    <div>
-                                                                        <div className="text-sm font-bold text-slate-800">{getTemplateDisplayName(t)}</div>
-                                                                        <div className="text-xs text-slate-500">Nhập: {formatCurrency(t.importPrice)} | Bán: {formatCurrency(t.exportPrice)}</div>
+                                                        <div className="absolute top-full left-0 w-full mt-1 bg-white border border-slate-200 shadow-xl rounded-xl overflow-hidden z-50">
+                                                            <div className="p-2 border-b bg-slate-50 sticky top-0">
+                                                                <input type="text" placeholder="Tìm kiếm mẫu..." autoFocus
+                                                                    className="w-full p-2 border rounded-lg text-sm outline-none focus:border-blue-500"
+                                                                    value={templateSearchText} onChange={(e) => setTemplateSearchText(e.target.value)} />
+                                                            </div>
+                                                            <div className="max-h-60 overflow-y-auto">
+                                                                {dropdownFilteredTemplates.map(t => (
+                                                                    <div key={t.id} className="p-3 border-b hover:bg-blue-50 cursor-pointer text-sm flex items-center gap-3"
+                                                                        onClick={() => {
+                                                                            setInventoryForm(prev => ({...prev, templateId: t.id, costPrice: t.importPrice, sellingPrice: t.exportPrice}));
+                                                                            setIsTemplateDropdownOpen(false);
+                                                                            setTemplateSearchText('');
+                                                                        }}>
+                                                                        <div className="w-8 h-8 rounded bg-slate-100 shrink-0 overflow-hidden">{t.image && <img src={t.image} className="w-full h-full object-cover"/>}</div>
+                                                                        <div>
+                                                                            <p className="font-medium text-slate-800">{getTemplateDisplayName(t)}</p>
+                                                                            <p className="text-xs text-slate-500">Gợi ý nhập: {formatCurrency(t.importPrice)}</p>
+                                                                        </div>
                                                                     </div>
-                                                                </div>
-                                                            )) : <div className="p-4 text-center text-sm text-slate-400">Không tìm thấy mẫu nào</div>}
+                                                                ))}
+                                                                {dropdownFilteredTemplates.length === 0 && <div className="p-4 text-center text-sm text-slate-500">Không tìm thấy</div>}
+                                                            </div>
                                                         </div>
                                                     )}
                                                 </div>
                                             </div>
-                                            <div className="md:col-span-2"><label className="block text-sm font-semibold text-slate-700 mb-1.5">Số lượng *</label><input required type="number" min="1" value={inventoryForm.quantity} onChange={e => setInventoryForm({...inventoryForm, quantity: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-bold" /></div>
-                                            <div className="md:col-span-3"><label className="block text-sm font-semibold text-slate-700 mb-1.5">Trạng thái vận chuyển</label>
-                                                <select value={inventoryForm.status} onChange={e => setInventoryForm({...inventoryForm, status: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-medium text-slate-700">
-                                                    <option>Đã về kho</option><option>Đang vận chuyển</option><option>Hàng chưa về</option>
+
+                                            <div>
+                                                <label className="block text-sm font-medium text-slate-700 mb-1">Số lượng *</label>
+                                                <input required type="number" min="1" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500"
+                                                    value={inventoryForm.quantity} onChange={e => setInventoryForm({...inventoryForm, quantity: e.target.value})} />
+                                            </div>
+
+                                            <button type="submit" className="w-full py-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-bold transition-colors">
+                                                Nhập Kho
+                                            </button>
+
+                                            <div className="md:col-span-1">
+                                                <label className="block text-sm font-medium text-slate-700 mb-1">Giá Vốn (Thực tế)</label>
+                                                <input type="number" min="0" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none"
+                                                    value={inventoryForm.costPrice} onChange={e => setInventoryForm({...inventoryForm, costPrice: e.target.value})} />
+                                            </div>
+                                            <div className="md:col-span-1">
+                                                <label className="block text-sm font-medium text-slate-700 mb-1">Giá Bán (Thực tế)</label>
+                                                <input type="number" min="0" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none"
+                                                    value={inventoryForm.sellingPrice} onChange={e => setInventoryForm({...inventoryForm, sellingPrice: e.target.value})} />
+                                            </div>
+                                            <div className="md:col-span-1">
+                                                <label className="block text-sm font-medium text-slate-700 mb-1">Thanh toán nhà CC</label>
+                                                <select className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none"
+                                                    value={inventoryForm.payment} onChange={e => setInventoryForm({...inventoryForm, payment: e.target.value})}>
+                                                    <option>Thanh toán online</option>
+                                                    <option>Tiền mặt</option>
+                                                    <option>Công nợ</option>
                                                 </select>
                                             </div>
-                                            <div className="md:col-span-3"><label className="block text-sm font-semibold text-slate-700 mb-1.5">Thanh toán NCC</label>
-                                                <select value={inventoryForm.payment} onChange={e => setInventoryForm({...inventoryForm, payment: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-medium text-slate-700">
-                                                    <option>Thanh toán online</option><option>Thanh toán tiền mặt</option><option>Chưa thanh toán</option>
+                                            <div className="md:col-span-1">
+                                                <label className="block text-sm font-medium text-slate-700 mb-1">Trạng thái</label>
+                                                <select className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none"
+                                                    value={inventoryForm.status} onChange={e => setInventoryForm({...inventoryForm, status: e.target.value})}>
+                                                    <option>Đã về kho</option>
+                                                    <option>Đang vận chuyển</option>
+                                                    <option>Order trước</option>
                                                 </select>
                                             </div>
-                                            
-                                            <div className="md:col-span-3"><label className="block text-sm font-semibold text-slate-700 mb-1.5">Giá nhập thực tế</label><input required type="number" min="0" value={inventoryForm.costPrice} onChange={e => setInventoryForm({...inventoryForm, costPrice: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500" /></div>
-                                            <div className="md:col-span-3"><label className="block text-sm font-semibold text-blue-600 mb-1.5">Giá bán chốt</label><input required type="number" min="0" value={inventoryForm.sellingPrice} onChange={e => setInventoryForm({...inventoryForm, sellingPrice: e.target.value})} className="w-full p-3 bg-blue-50 border border-blue-200 rounded-xl outline-none focus:border-blue-500 text-blue-700 font-bold" /></div>
-                                            <div className="md:col-span-6 flex items-end"><button type="submit" className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold hover:bg-slate-800 transition-all shadow-md hover:shadow-lg">Xác nhận Nhập kho</button></div>
                                         </form>
                                     </div>
 
-                                    <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
-                                        <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-50/50">
-                                            <h3 className="font-bold text-lg">Tồn kho hiện tại</h3>
-                                            <div className="relative w-full sm:w-80">
-                                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                                                <input type="text" placeholder="Tìm sản phẩm trong kho..." value={searchTerms.inventory} onChange={(e) => setSearchTerms({...searchTerms, inventory: e.target.value})} className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 text-sm transition-all shadow-sm" />
+                                    {/* Bảng Tồn Kho */}
+                                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                                        <div className="p-4 border-b flex justify-between items-center bg-slate-50/50">
+                                            <div className="flex bg-white p-2 rounded-lg border w-full max-w-md items-center">
+                                                {Search && <Search className="text-slate-400 ml-2" size={18} />}
+                                                <input type="text" placeholder="Tìm kiếm trong kho..." className="w-full p-1 ml-2 outline-none text-sm"
+                                                    value={searchTerms.inventory} onChange={e => setSearchTerms({...searchTerms, inventory: e.target.value})} />
                                             </div>
                                         </div>
                                         <div className="overflow-x-auto">
-                                            <table className="w-full text-left border-collapse min-w-[800px]">
-                                                <thead><tr className="bg-white text-slate-400 text-xs uppercase tracking-wider border-b border-slate-100">
-                                                    <th className="p-4 font-bold">Sản phẩm</th>
-                                                    <th className="p-4 font-bold text-center">Số lượng</th>
-                                                    <th className="p-4 font-bold">Tình trạng</th>
-                                                    <th className="p-4 font-bold text-right">Tài chính</th>
-                                                    <th className="p-4 font-bold text-center">Thao tác</th>
-                                                </tr></thead>
+                                            <table className="w-full text-sm text-left">
+                                                <thead className="text-xs text-slate-500 uppercase bg-slate-100">
+                                                    <tr>
+                                                        <th className="px-4 py-3">Sản phẩm</th>
+                                                        <th className="px-4 py-3">Phân loại</th>
+                                                        <th className="px-4 py-3 text-center">Tồn kho</th>
+                                                        <th className="px-4 py-3">Giá Vốn</th>
+                                                        <th className="px-4 py-3">Giá Bán</th>
+                                                        <th className="px-4 py-3">Trạng thái</th>
+                                                        <th className="px-4 py-3 text-right">Thao tác</th>
+                                                    </tr>
+                                                </thead>
                                                 <tbody className="divide-y divide-slate-100">
-                                                    {filteredInventory.length === 0 ? <tr><td colSpan="5" className="p-12 text-center text-slate-400"><PackagePlus className="w-12 h-12 mx-auto mb-3 opacity-20"/>Kho đang trống hoặc không tìm thấy.</td></tr> : 
-                                                    filteredInventory.map(inv => {
+                                                    {filteredInventory.map(inv => {
                                                         const t = getTemplate(inv.templateId);
                                                         return (
-                                                        <tr key={inv.id} className={`hover:bg-slate-50 transition-colors group ${inv.quantity === 0 ? 'opacity-50' : ''}`}>
-                                                            <td className="p-4 flex items-center space-x-4">
-                                                                {t?.image ? <img src={t.image} alt="thumb" className="w-12 h-12 object-cover rounded-xl shadow-sm border border-slate-100 shrink-0" /> : <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center text-slate-300 shrink-0"><ImageIcon size={20}/></div>}
-                                                                <div>
-                                                                    <p className="font-bold text-slate-800 text-base">{getTemplateDisplayName(t)}</p>
-                                                                    <p className="text-xs text-slate-500 mt-0.5">{getTemplateDetails(t)}</p>
-                                                                </div>
-                                                            </td>
-                                                            <td className="p-4 text-center">
-                                                                <span className={`px-3 py-1.5 rounded-lg font-black text-sm ${inv.quantity > 5 ? 'bg-slate-100 text-slate-700' : inv.quantity > 0 ? 'bg-orange-100 text-orange-700' : 'bg-rose-100 text-rose-700'}`}>
-                                                                    {inv.quantity}
-                                                                </span>
-                                                            </td>
-                                                            <td className="p-4">
-                                                                <div className="flex flex-col space-y-1.5">
-                                                                    <span className={`inline-flex items-center text-[11px] font-bold uppercase tracking-wide px-2 py-1 rounded-md w-fit whitespace-nowrap ${String(inv.status) === 'Đã về kho' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
-                                                                        {String(inv.status) === 'Đã về kho' ? <CheckCircle2 size={12} className="mr-1"/> : <Clock size={12} className="mr-1"/>} {inv.status}
-                                                                    </span>
-                                                                    <span className="inline-flex items-center text-xs font-medium text-slate-500 whitespace-nowrap">
-                                                                        {String(inv.payment || '').includes('Online') ? <CreditCard size={12} className="mr-1"/> : <Wallet size={12} className="mr-1"/>} {inv.payment}
-                                                                    </span>
-                                                                </div>
-                                                            </td>
-                                                            <td className="p-4 text-right whitespace-nowrap">
-                                                                <p className="text-xs font-medium text-slate-400 line-through mb-0.5">{formatCurrency(inv.costPrice)}</p>
-                                                                <p className="font-black text-blue-600">{formatCurrency(inv.sellingPrice)}</p>
-                                                            </td>
-                                                            <td className="p-4">
-                                                                <div className="flex items-center justify-center space-x-2">
-                                                                    {/* NÚT BÁN NGAY KHÔNG CÒN BỊ KHÓA NẾU HÀNG CHƯA VỀ */}
-                                                                    <button disabled={inv.quantity === 0} onClick={() => setSellModal({ isOpen: true, item: inv, qty: 1, type: 'Ship COD', price: inv.sellingPrice })} 
-                                                                        className="bg-slate-900 hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm hover:shadow-md whitespace-nowrap">
-                                                                        Bán ngay
-                                                                    </button>
-                                                                    {/* NÚT CHỈNH SỬA MỚI */}
-                                                                    <button onClick={() => openEditInvModal(inv)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all opacity-0 group-hover:opacity-100 focus:opacity-100" title="Chỉnh sửa">
-                                                                        <Edit size={18}/>
-                                                                    </button>
-                                                                    <button onClick={() => { if(window.confirm('Chắc chắn muốn xóa lô hàng này?')) handleDeleteInventory(inv.id); }} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all opacity-0 group-hover:opacity-100 focus:opacity-100" title="Xóa">
-                                                                        <Trash2 size={18}/>
-                                                                    </button>
-                                                                </div>
-                                                            </td>
-                                                        </tr>
-                                                    )})}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </div>
-                                </div>
-                                )}
-
-                                {/* ---------------- TAB 4: LỊCH SỬ ĐƠN ---------------- */}
-                                {activeTab === 'sales' && (
-                                <div className="space-y-6 animate-fade-in">
-                                    <div><h2 className="text-3xl font-bold text-slate-900 tracking-tight">Lịch sử Giao dịch</h2><p className="text-slate-500 mt-1">Quản lý các đơn hàng đã xuất kho</p></div>
-                                    <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
-                                        <div className="overflow-x-auto">
-                                            <table className="w-full text-left border-collapse min-w-[700px]">
-                                                <thead><tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider border-b border-slate-100">
-                                                    <th className="p-4 font-bold">Thời gian</th>
-                                                    <th className="p-4 font-bold">Sản phẩm</th>
-                                                    <th className="p-4 font-bold text-center">Hình thức</th>
-                                                    <th className="p-4 font-bold text-right">Lãi ròng</th>
-                                                    <th className="p-4 font-bold text-center">Xóa</th>
-                                                </tr></thead>
-                                                <tbody className="divide-y divide-slate-100">
-                                                    {sales.length === 0 ? <tr><td colSpan="5" className="p-12 text-center text-slate-400"><History className="w-12 h-12 mx-auto mb-3 opacity-20"/>Chưa có đơn hàng nào được bán ra.</td></tr> : 
-                                                    sales.map(sale => {
-                                                        const t = getTemplate(sale.templateId);
-                                                        const profit = (Number(sale.actualSellingPrice) - (Number(sale.costPrice) || 0)) * Number(sale.quantitySold);
-                                                        return (
-                                                            <tr key={sale.id} className="hover:bg-slate-50 transition-colors group">
-                                                                <td className="p-4"><p className="font-semibold text-slate-600 text-sm">{formatDate(sale.saleDate)}</p></td>
-                                                                <td className="p-4 flex items-center space-x-3">
-                                                                    {t?.image ? <img src={t.image} alt="thumb" className="w-10 h-10 object-cover rounded-xl shadow-sm border border-slate-100 shrink-0" /> : <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center text-slate-300 shrink-0"><ImageIcon size={16}/></div>}
-                                                                    <div>
-                                                                        <p className="font-bold text-slate-800">{getTemplateDisplayName(t)}</p>
-                                                                        <p className="text-xs text-blue-600 font-bold mt-0.5">Số lượng: {sale.quantitySold}</p>
+                                                            <tr key={inv.id} className="hover:bg-slate-50">
+                                                                <td className="px-4 py-3 flex items-center gap-3">
+                                                                    <div className="w-10 h-10 rounded border overflow-hidden bg-white shrink-0 flex items-center justify-center">
+                                                                        {t?.image ? <img src={t.image} className="w-full h-full object-cover"/> : (ImageIcon ? <ImageIcon className="w-full h-full p-2 text-slate-300"/> : <span className="text-xs text-slate-400">Ảnh</span>)}
                                                                     </div>
+                                                                    <span className="font-medium text-slate-800">{getTemplateDisplayName(t)}</span>
                                                                 </td>
-                                                                <td className="p-4 text-center">
-                                                                    <span className={`inline-flex items-center text-xs px-2.5 py-1 rounded-full font-bold whitespace-nowrap ${String(sale.deliveryType) === 'Ship COD' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>
-                                                                        {String(sale.deliveryType) === 'Ship COD' ? <Truck size={12} className="mr-1"/> : <Store size={12} className="mr-1"/>} {sale.deliveryType}
+                                                                <td className="px-4 py-3 text-slate-500">{getTemplateDetails(t)}</td>
+                                                                <td className="px-4 py-3 text-center">
+                                                                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${inv.quantity > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                                                                        {inv.quantity}
                                                                     </span>
                                                                 </td>
-                                                                <td className="p-4 text-right font-black text-violet-600 text-lg">+{formatCurrency(profit)}</td>
-                                                                <td className="p-4 text-center">
-                                                                    <button onClick={() => handleDeleteSale(sale.id)} className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all opacity-0 group-hover:opacity-100 focus:opacity-100" title="Xóa và hoàn kho">
-                                                                        <Trash2 size={18}/>
+                                                                <td className="px-4 py-3">{formatCurrency(inv.costPrice)}</td>
+                                                                <td className="px-4 py-3 font-medium text-blue-600">{formatCurrency(inv.sellingPrice)}</td>
+                                                                <td className="px-4 py-3 text-xs text-slate-500">{inv.status}</td>
+                                                                <td className="px-4 py-3 text-right space-x-2">
+                                                                    <button onClick={() => openSellModal(inv)} disabled={inv.quantity <= 0} className="p-1.5 text-white bg-emerald-500 rounded hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed" title="Bán hàng">
+                                                                        {ShoppingCart ? <ShoppingCart size={16}/> : <span>Bán</span>}
+                                                                    </button>
+                                                                    <button onClick={() => openEditInvModal(inv)} className="p-1.5 text-blue-600 bg-blue-50 rounded hover:bg-blue-100" title="Sửa thông tin">
+                                                                        {Edit ? <Edit size={16}/> : <span>Sửa</span>}
+                                                                    </button>
+                                                                    <button onClick={() => handleDeleteInventory(inv.id)} className="p-1.5 text-rose-600 bg-rose-50 rounded hover:bg-rose-100" title="Xóa">
+                                                                        {Trash2 ? <Trash2 size={16}/> : <span>Xóa</span>}
                                                                     </button>
                                                                 </td>
                                                             </tr>
                                                         )
                                                     })}
+                                                    {filteredInventory.length === 0 && <tr><td colSpan="7" className="py-8 text-center text-slate-500">Kho hàng trống.</td></tr>}
                                                 </tbody>
                                             </table>
                                         </div>
@@ -907,49 +917,94 @@
                                 </div>
                                 )}
 
-                                {/* ---------------- TAB 5: ĐỒNG BỘ CLOUD ---------------- */}
-                                {activeTab === 'sync' && (
-                                <div className="space-y-6 animate-fade-in max-w-2xl mx-auto pb-10">
-                                    <div className="text-center mb-8">
-                                        <h2 className="text-3xl font-black text-slate-900 tracking-tight">Dữ liệu Đám mây</h2>
-                                        <p className="text-slate-500 mt-2">Sao lưu an toàn, không lo mất dữ liệu</p>
+                                {/* ================= TAB 4: SALES HISTORY ================= */}
+                                {activeTab === 'sales' && (
+                                <div className="space-y-6">
+                                    <div>
+                                        <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Lịch sử Đơn hàng</h2>
+                                        <p className="text-slate-500 mt-1">Quản lý các giao dịch đã thực hiện</p>
                                     </div>
-                                    <div className="bg-slate-900 p-8 md:p-10 rounded-[2rem] shadow-2xl shadow-blue-900/20 text-white relative overflow-hidden">
-                                        <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none"><CloudLightning className="w-48 h-48"/></div>
-                                        <div className="relative z-10">
-                                            <div className="flex items-center space-x-4 mb-8">
-                                                <div className="p-3 bg-blue-500/20 rounded-2xl"><CloudLightning className="w-8 h-8 text-blue-400" /></div>
-                                                <h3 className="text-2xl font-bold">Google Apps Script</h3>
-                                            </div>
-                                            <div className="space-y-5">
-                                                <div>
-                                                    <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Đường dẫn Web App API</label>
-                                                    <div className="flex flex-col sm:flex-row gap-3">
-                                                        <input type="text" value={syncUrl} onChange={(e) => setSyncUrl(e.target.value)} placeholder="https://script.google.com/macros/s/..." className="flex-1 px-5 py-4 border-none rounded-2xl outline-none text-slate-900 bg-white font-medium focus:ring-4 focus:ring-blue-500/30 transition-all shadow-inner" />
-                                                        <button onClick={handleSaveSyncUrl} className="px-8 py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/30 hover:bg-blue-500 hover:-translate-y-0.5 transition-all whitespace-nowrap">Lưu Link</button>
-                                                    </div>
-                                                </div>
-                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-6 border-t border-slate-800">
-                                                    <button onClick={syncToCloud} className="py-5 bg-emerald-500 text-white rounded-2xl font-bold shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 hover:-translate-y-0.5 transition-all flex items-center justify-center space-x-2">
-                                                        <UploadCloud /> <span>Đẩy dữ liệu lên</span>
-                                                    </button>
-                                                    <button onClick={syncFromCloud} className="py-5 bg-white/10 text-white border border-white/20 rounded-2xl font-bold hover:bg-white/20 hover:-translate-y-0.5 transition-all flex items-center justify-center space-x-2 backdrop-blur-sm">
-                                                        <DownloadCloud /> <span>Tải dữ liệu về</span>
-                                                    </button>
-                                                </div>
-                                            </div>
-                                            {syncStatus.message && (
-                                                <div className={`mt-8 py-3 px-4 rounded-xl text-sm font-bold text-center border bg-white/5 backdrop-blur-md ${syncStatus.type.includes('emerald') ? 'border-emerald-500/30 text-emerald-400' : syncStatus.type.includes('rose') ? 'border-rose-500/30 text-rose-400' : 'border-indigo-500/30 text-indigo-400'} ${syncStatus.type}`}>
-                                                    {syncStatus.message}
-                                                </div>
-                                            )}
+
+                                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-sm text-left">
+                                                <thead className="text-xs text-slate-500 uppercase bg-slate-100">
+                                                    <tr>
+                                                        <th className="px-6 py-4">Mã Đơn</th>
+                                                        <th className="px-6 py-4">Sản phẩm</th>
+                                                        <th className="px-6 py-4 text-center">Số lượng</th>
+                                                        <th className="px-6 py-4">Giá bán/SP</th>
+                                                        <th className="px-6 py-4">Tổng thu</th>
+                                                        <th className="px-6 py-4">Vận chuyển</th>
+                                                        <th className="px-6 py-4">Ngày giờ</th>
+                                                        <th className="px-6 py-4 text-right">Xóa</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-100">
+                                                    {sales.map(sale => {
+                                                        const t = getTemplate(sale.templateId);
+                                                        return (
+                                                            <tr key={sale.id} className="hover:bg-slate-50">
+                                                                <td className="px-6 py-4 text-xs font-mono text-slate-400">{(sale.id || '').replace('tx_','').slice(-6)}</td>
+                                                                <td className="px-6 py-4 font-medium text-slate-800">{getTemplateDisplayName(t)}</td>
+                                                                <td className="px-6 py-4 text-center font-bold text-slate-700">{sale.quantitySold}</td>
+                                                                <td className="px-6 py-4 text-slate-600">{formatCurrency(sale.actualSellingPrice)}</td>
+                                                                <td className="px-6 py-4 font-bold text-emerald-600">{formatCurrency(sale.actualSellingPrice * sale.quantitySold)}</td>
+                                                                <td className="px-6 py-4 text-xs text-slate-500">{sale.deliveryType}</td>
+                                                                <td className="px-6 py-4 text-slate-500">{formatDate(sale.saleDate)}</td>
+                                                                <td className="px-6 py-4 text-right">
+                                                                    <button onClick={() => handleDeleteSale(sale.id)} className="text-slate-400 hover:text-rose-600">{Trash2 && <Trash2 size={18}/>}</button>
+                                                                </td>
+                                                            </tr>
+                                                        )
+                                                    })}
+                                                    {sales.length === 0 && <tr><td colSpan="8" className="py-12 text-center text-slate-500">Chưa có giao dịch nào.</td></tr>}
+                                                </tbody>
+                                            </table>
                                         </div>
                                     </div>
-                                    
-                                    <div className="flex flex-col items-center pt-8">
-                                        <p className="text-sm text-slate-500 mb-4 font-medium">Sao lưu ngoại tuyến (Offline Backup)</p>
-                                        <button onClick={exportBackupData} className="text-slate-700 hover:text-blue-700 flex items-center space-x-2 font-bold bg-white px-6 py-3 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-blue-200 transition-all">
-                                            <Save className="w-5 h-5" /> <span>Tải file JSON về máy</span>
+                                </div>
+                                )}
+
+                                {/* ================= TAB 5: SYNC ================= */}
+                                {activeTab === 'sync' && (
+                                <div className="space-y-6 max-w-3xl">
+                                    <div>
+                                        <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Đồng bộ Đám mây</h2>
+                                        <p className="text-slate-500 mt-1">Lưu trữ dữ liệu an toàn qua Google Drive / Apps Script</p>
+                                    </div>
+
+                                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                                        <h3 className="font-bold text-slate-800 mb-4 flex items-center">{CloudLightning && <CloudLightning className="mr-2 text-blue-500"/>} Cấu hình API</h3>
+                                        <div className="flex gap-2">
+                                            <input type="text" placeholder="Dán link Google Apps Script Web App URL vào đây..." 
+                                                className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500"
+                                                value={syncUrl} onChange={e => setSyncUrl(e.target.value)} />
+                                            <button onClick={handleSaveSyncUrl} className="px-6 py-3 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-medium transition-colors">
+                                                Lưu URL
+                                            </button>
+                                        </div>
+                                        {syncStatus.message && <p className={`mt-3 text-sm font-medium ${syncStatus.type}`}>{syncStatus.message}</p>}
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <button onClick={syncToCloud} className="p-6 bg-white border border-slate-200 rounded-2xl hover:border-blue-300 hover:shadow-md transition-all text-left group">
+                                            {UploadCloud && <UploadCloud className="text-blue-500 mb-3 group-hover:scale-110 transition-transform" size={32}/>}
+                                            <h4 className="font-bold text-slate-800 text-lg">Đẩy lên Cloud (Push)</h4>
+                                            <p className="text-sm text-slate-500 mt-1">Lưu bản sao dữ liệu hiện tại lên Google Drive.</p>
+                                        </button>
+                                        <button onClick={syncFromCloud} className="p-6 bg-white border border-slate-200 rounded-2xl hover:border-emerald-300 hover:shadow-md transition-all text-left group">
+                                            {DownloadCloud && <DownloadCloud className="text-emerald-500 mb-3 group-hover:scale-110 transition-transform" size={32}/>}
+                                            <h4 className="font-bold text-slate-800 text-lg">Tải về máy (Pull)</h4>
+                                            <p className="text-sm text-slate-500 mt-1">Ghi đè dữ liệu trên máy bằng bản sao trên Cloud.</p>
+                                        </button>
+                                    </div>
+
+                                    <div className="bg-orange-50 border border-orange-200 p-6 rounded-2xl">
+                                        <h3 className="font-bold text-orange-800 mb-2 flex items-center">{Save && <Save className="mr-2"/>} Sao lưu thủ công</h3>
+                                        <p className="text-sm text-orange-700 mb-4">Bạn nên thường xuyên tải file dữ liệu về máy để đề phòng rủi ro.</p>
+                                        <button onClick={exportBackupData} className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-sm font-medium transition-colors">
+                                            Tải file Backup (.json)
                                         </button>
                                     </div>
                                 </div>
@@ -957,127 +1012,138 @@
 
                             </div>
                         </div>
-
-                        {/* ---------------- MODAL BÁN HÀNG ---------------- */}
-                        {sellModal.isOpen && (
-                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
-                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-slide-up border border-slate-100">
-                                <div className="p-6 border-b border-slate-100 bg-slate-50 flex items-start justify-between">
-                                    <div className="flex items-center space-x-4">
-                                        {getTemplate(sellModal.item.templateId)?.image ? 
-                                            <img src={getTemplate(sellModal.item.templateId).image} className="w-12 h-12 rounded-xl shadow-sm object-cover border border-slate-200" alt="item"/> : 
-                                            <div className="w-12 h-12 rounded-xl bg-slate-200 flex items-center justify-center"><ImageIcon className="text-slate-400"/></div>
-                                        }
-                                        <div>
-                                            <h3 className="font-black text-lg text-slate-800">Xác nhận chốt đơn</h3>
-                                            <p className="text-sm text-slate-500 font-medium mt-0.5 line-clamp-1">{getTemplateDisplayName(getTemplate(sellModal.item.templateId))}</p>
-                                        </div>
-                                    </div>
-                                    <button onClick={() => setSellModal({isOpen: false})} className="p-2 bg-slate-200 text-slate-500 rounded-full hover:bg-slate-300 transition-colors"><X size={16}/></button>
-                                </div>
-                                <form onSubmit={handleSell} className="p-6 space-y-5">
-                                    <div className="grid grid-cols-2 gap-5">
-                                        <div>
-                                            <label className="block text-sm font-bold text-slate-700 mb-1.5">Số lượng bán</label>
-                                            <input type="number" min="1" max={sellModal.item.quantity} value={sellModal.qty} onChange={e => setSellModal({...sellModal, qty: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-bold text-lg text-center transition-all" />
-                                            <p className="text-xs font-semibold text-orange-600 mt-1.5 text-center">Tồn kho: {sellModal.item.quantity}</p>
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-bold text-slate-700 mb-1.5">Giá bán (VNĐ)</label>
-                                            <input type="number" required value={sellModal.price} onChange={e => setSellModal({...sellModal, price: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-bold text-lg text-blue-700 transition-all" />
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-bold text-slate-700 mb-2">Hình thức giao dịch</label>
-                                        <div className="grid grid-cols-2 gap-3">
-                                            <button type="button" onClick={() => setSellModal({...sellModal, type: 'Ship COD'})} className={`p-4 rounded-2xl border-2 flex flex-col items-center justify-center transition-all ${sellModal.type === 'Ship COD' ? 'border-orange-500 bg-orange-50 text-orange-700 shadow-md' : 'border-slate-100 bg-white text-slate-400 hover:bg-slate-50 hover:border-slate-200'}`}>
-                                                <Truck size={28} className="mb-2" />
-                                                <span className="text-sm font-bold">Ship COD</span>
-                                            </button>
-                                            <button type="button" onClick={() => setSellModal({...sellModal, type: 'Giao dịch trực tiếp'})} className={`p-4 rounded-2xl border-2 flex flex-col items-center justify-center transition-all ${sellModal.type === 'Giao dịch trực tiếp' ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-md' : 'border-slate-100 bg-white text-slate-400 hover:bg-slate-50 hover:border-slate-200'}`}>
-                                                <Store size={28} className="mb-2" />
-                                                <span className="text-sm font-bold text-center">Giao dịch trực tiếp</span>
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div className="pt-2">
-                                        <button type="submit" className="w-full py-4 bg-slate-900 text-white font-bold rounded-2xl hover:bg-slate-800 shadow-xl shadow-slate-900/20 hover:-translate-y-0.5 transition-all text-lg">Xác nhận bán hàng</button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                        )}
-
-                        {/* ---------------- MODAL SỬA LÔ HÀNG ---------------- */}
-                        {editInvModal.isOpen && (
-                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in overflow-y-auto">
-                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-slide-up border border-slate-100 my-auto">
-                                <div className="p-6 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
-                                    <h3 className="font-black text-xl text-slate-800">Chỉnh sửa Lô hàng</h3>
-                                    <button onClick={() => setEditInvModal({isOpen: false, item: null, template: null, form: {}})} className="p-2 bg-slate-200 text-slate-500 rounded-full hover:bg-slate-300 transition-colors"><X size={16}/></button>
-                                </div>
-                                <form onSubmit={handleEditInventorySubmit} className="p-6 space-y-5">
-                                    <div className="flex space-x-4 items-center bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                                        <label className="relative group cursor-pointer block">
-                                            {editInvModal.form.image ? 
-                                                <img src={editInvModal.form.image} className="w-16 h-16 rounded-xl object-cover border border-slate-200" alt="item"/> : 
-                                                <div className="w-16 h-16 rounded-xl bg-white border border-slate-200 flex items-center justify-center"><ImageIcon className="text-slate-400"/></div>
-                                            }
-                                            <div className="absolute inset-0 bg-black/40 rounded-xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <Edit size={16} className="text-white"/>
-                                            </div>
-                                            <input type="file" accept="image/*" className="hidden" onChange={handleEditModalImageChange} />
-                                        </label>
-                                        <div className="flex-1">
-                                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tên / Mã SP</label>
-                                            <input required type="text" value={editInvModal.template?.category === 'Keycap' ? editInvModal.form.name : editInvModal.form.model} 
-                                                onChange={e => {
-                                                    if (editInvModal.template?.category === 'Keycap') setEditInvModal(prev => ({...prev, form: {...prev.form, name: e.target.value}}));
-                                                    else setEditInvModal(prev => ({...prev, form: {...prev.form, model: e.target.value}}));
-                                                }}
-                                                className="w-full p-2.5 bg-white border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-bold text-slate-800 transition-all text-sm" 
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div><label className="block text-sm font-bold text-slate-700 mb-1">Số lượng tồn</label>
-                                            <input required type="number" min="0" value={editInvModal.form.quantity} onChange={e => setEditInvModal(prev => ({...prev, form: {...prev.form, quantity: e.target.value}}))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-bold transition-all" />
-                                        </div>
-                                        <div><label className="block text-sm font-bold text-slate-700 mb-1">Trạng thái kho</label>
-                                            <select value={editInvModal.form.status} onChange={e => setEditInvModal(prev => ({...prev, form: {...prev.form, status: e.target.value}}))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-medium transition-all">
-                                                <option>Đã về kho</option><option>Đang vận chuyển</option><option>Hàng chưa về</option>
-                                            </select>
-                                        </div>
-                                        <div><label className="block text-sm font-bold text-slate-700 mb-1">Giá nhập (VNĐ)</label>
-                                            <input required type="number" min="0" value={editInvModal.form.costPrice} onChange={e => setEditInvModal(prev => ({...prev, form: {...prev.form, costPrice: e.target.value}}))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 transition-all" />
-                                        </div>
-                                        <div><label className="block text-sm font-bold text-slate-700 mb-1">Giá bán (VNĐ)</label>
-                                            <input required type="number" min="0" value={editInvModal.form.sellingPrice} onChange={e => setEditInvModal(prev => ({...prev, form: {...prev.form, sellingPrice: e.target.value}}))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-bold text-blue-700 transition-all" />
-                                        </div>
-                                        <div className="col-span-2"><label className="block text-sm font-bold text-slate-700 mb-1">Trạng thái thanh toán (NCC)</label>
-                                            <select value={editInvModal.form.payment} onChange={e => setEditInvModal(prev => ({...prev, form: {...prev.form, payment: e.target.value}}))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-medium transition-all">
-                                                <option>Thanh toán online</option><option>Thanh toán tiền mặt</option><option>Chưa thanh toán</option>
-                                            </select>
-                                        </div>
-                                    </div>
-
-                                    <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 flex justify-between items-center">
-                                        <span className="text-sm font-bold text-emerald-800">Lãi ròng dự kiến (tổng lô hàng):</span>
-                                        <span className="font-black text-emerald-600 text-lg">
-                                            {formatCurrency((Number(editInvModal.form.sellingPrice) - Number(editInvModal.form.costPrice)) * Number(editInvModal.form.quantity))}
-                                        </span>
-                                    </div>
-
-                                    <div className="pt-2">
-                                        <button type="submit" className="w-full py-4 bg-blue-600 text-white font-bold rounded-2xl hover:bg-blue-700 shadow-xl shadow-blue-600/20 hover:-translate-y-0.5 transition-all text-lg">Lưu thông tin</button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                        )}
-
                     </div>
+
+                    {/* ================= MODALS NỔI ================= */}
+                    
+                    {/* SELL MODAL */}
+                    {sellModal.isOpen && (
+                        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-fade-in">
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
+                                <div className="p-4 border-b flex justify-between items-center bg-slate-50">
+                                    <h3 className="font-bold text-lg text-slate-800">Chốt Đơn Bán Hàng</h3>
+                                    <button onClick={() => setSellModal({isOpen: false, item: null, qty: 1})} className="text-slate-400 hover:text-slate-700">{X && <X size={20}/>}</button>
+                                </div>
+                                <div className="p-6 space-y-4">
+                                    <div className="bg-blue-50 p-3 rounded-xl border border-blue-100">
+                                        <p className="font-medium text-blue-900">{getTemplateDisplayName(getTemplate(sellModal.item?.templateId))}</p>
+                                        <p className="text-sm text-blue-700 mt-1">Kho còn: <span className="font-bold">{sellModal.item?.quantity}</span> chiếc</p>
+                                    </div>
+                                    
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">Số lượng bán</label>
+                                            <input type="number" min="1" max={sellModal.item?.quantity} 
+                                                className="w-full p-2.5 border rounded-xl outline-none focus:border-blue-500"
+                                                value={sellModal.qty} onChange={e => setSellModal({...sellModal, qty: e.target.value})} />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">Giá chốt/SP</label>
+                                            <input type="number" min="0" 
+                                                className="w-full p-2.5 border rounded-xl outline-none focus:border-blue-500"
+                                                value={sellModal.price} onChange={e => setSellModal({...sellModal, price: e.target.value})} />
+                                        </div>
+                                    </div>
+                                    
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-700 mb-1">Hình thức giao hàng/Thanh toán</label>
+                                        <select className="w-full p-2.5 border rounded-xl outline-none focus:border-blue-500"
+                                            value={sellModal.type} onChange={e => setSellModal({...sellModal, type: e.target.value})}>
+                                            <option>Ship COD</option>
+                                            <option>Chuyển khoản trước</option>
+                                            <option>Bán trực tiếp tại Shop</option>
+                                            <option>Giao Hỏa Tốc</option>
+                                        </select>
+                                    </div>
+
+                                    <div className="pt-2 flex justify-between items-center text-lg">
+                                        <span className="text-slate-500">Tổng thu:</span>
+                                        <span className="font-black text-emerald-600">{formatCurrency(sellModal.qty * sellModal.price)}</span>
+                                    </div>
+                                </div>
+                                <div className="p-4 border-t bg-slate-50 flex gap-3 justify-end">
+                                    <button onClick={() => setSellModal({isOpen: false})} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-200 rounded-lg">Hủy</button>
+                                    <button onClick={handleSell} className="px-6 py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-lg flex items-center shadow-lg shadow-emerald-500/30">
+                                        {CheckCircle2 && <CheckCircle2 size={18} className="mr-2"/>} Xác nhận Bán
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* EDIT INVENTORY MODAL */}
+                    {editInvModal.isOpen && (
+                        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-fade-in">
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                                <div className="p-4 border-b flex justify-between items-center bg-slate-50 shrink-0">
+                                    <h3 className="font-bold text-lg text-slate-800">Chỉnh sửa thông tin lô hàng</h3>
+                                    <button onClick={() => setEditInvModal({isOpen: false, form:{}})} className="text-slate-400 hover:text-slate-700">{X && <X size={20}/>}</button>
+                                </div>
+                                <div className="p-6 overflow-y-auto space-y-6">
+                                    
+                                    <div className="flex gap-4 items-start">
+                                        <div className="w-24 h-24 rounded-xl border bg-slate-50 shrink-0 relative overflow-hidden group flex items-center justify-center">
+                                            {editInvModal.form.image ? <img src={editInvModal.form.image} className="w-full h-full object-cover"/> : (ImageIcon ? <ImageIcon className="w-full h-full p-6 text-slate-300"/> : <span className="text-xs text-slate-400">Ảnh</span>)}
+                                            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                                <label className="cursor-pointer text-white text-xs font-medium bg-blue-600 px-2 py-1 rounded">
+                                                    Đổi ảnh
+                                                    <input type="file" className="hidden" accept="image/*" onChange={handleEditModalImageChange}/>
+                                                </label>
+                                            </div>
+                                        </div>
+                                        <div className="flex-1 space-y-3">
+                                            {editInvModal.template?.category === 'Keycap' ? (
+                                                <div>
+                                                    <label className="block text-xs font-medium text-slate-500 mb-1">Tên bộ Keycap</label>
+                                                    <input type="text" className="w-full p-2 border rounded-lg text-sm" value={editInvModal.form.name} onChange={e => setEditInvModal(p => ({...p, form:{...p.form, name: e.target.value}}))} />
+                                                </div>
+                                            ) : (
+                                                <div>
+                                                    <label className="block text-xs font-medium text-slate-500 mb-1">Mã Model</label>
+                                                    <input type="text" className="w-full p-2 border rounded-lg text-sm" value={editInvModal.form.model} onChange={e => setEditInvModal(p => ({...p, form:{...p.form, model: e.target.value}}))} />
+                                                </div>
+                                            )}
+                                            <p className="text-xs text-orange-600 bg-orange-50 p-2 rounded border border-orange-100">Lưu ý: Đổi Ảnh/Tên ở đây sẽ áp dụng cho toàn bộ các lô hàng dùng chung Mẫu này.</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 border-t pt-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">Số lượng tồn</label>
+                                            <input type="number" min="0" className="w-full p-2.5 border rounded-xl" value={editInvModal.form.quantity} onChange={e => setEditInvModal(p => ({...p, form:{...p.form, quantity: e.target.value}}))} />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">Giá Vốn</label>
+                                            <input type="number" min="0" className="w-full p-2.5 border rounded-xl" value={editInvModal.form.costPrice} onChange={e => setEditInvModal(p => ({...p, form:{...p.form, costPrice: e.target.value}}))} />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">Giá Bán</label>
+                                            <input type="number" min="0" className="w-full p-2.5 border rounded-xl" value={editInvModal.form.sellingPrice} onChange={e => setEditInvModal(p => ({...p, form:{...p.form, sellingPrice: e.target.value}}))} />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">Trạng thái</label>
+                                            <select className="w-full p-2.5 border rounded-xl" value={editInvModal.form.status} onChange={e => setEditInvModal(p => ({...p, form:{...p.form, status: e.target.value}}))}>
+                                                <option>Đã về kho</option><option>Đang vận chuyển</option><option>Order trước</option>
+                                            </select>
+                                        </div>
+                                        <div className="md:col-span-2">
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">Thanh toán với NCC</label>
+                                            <select className="w-full p-2.5 border rounded-xl" value={editInvModal.form.payment} onChange={e => setEditInvModal(p => ({...p, form:{...p.form, payment: e.target.value}}))}>
+                                                <option>Thanh toán online</option><option>Tiền mặt</option><option>Công nợ</option><option>Hoàn trả</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="p-4 border-t bg-slate-50 flex gap-3 justify-end shrink-0">
+                                    <button onClick={() => setEditInvModal({isOpen: false, form:{}})} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-200 rounded-lg">Hủy</button>
+                                    <button onClick={handleEditInventorySubmit} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg flex items-center">
+                                        Lưu thay đổi
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                 </div>
             );
         }
